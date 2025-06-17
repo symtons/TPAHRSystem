@@ -5,6 +5,12 @@ VisualStudioVersion = 17.14.36121.58 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TPAHRSystem.Core", "TPAHRSystem.Core\TPAHRSystem.Core.csproj", "{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TPAHRSystem.Infrastructure", "TPAHRSystem.Infrastructure\TPAHRSystem.Infrastructure.csproj", "{C240D871-05F6-4119-94BC-CE042FFF8FAC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TPAHRSystem.Application", "TPAHRSystem.Application\TPAHRSystem.Application.csproj", "{0B79DCB7-F0D2-4C8A-BB0B-C489A89EC242}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TPAHRSystem.API", "TPAHRSystem.API\TPAHRSystem.API.csproj", "{11529E94-3DD8-44FE-ACDD-BEEB080078BA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +21,18 @@ Global
 		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C240D871-05F6-4119-94BC-CE042FFF8FAC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C240D871-05F6-4119-94BC-CE042FFF8FAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C240D871-05F6-4119-94BC-CE042FFF8FAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C240D871-05F6-4119-94BC-CE042FFF8FAC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0B79DCB7-F0D2-4C8A-BB0B-C489A89EC242}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0B79DCB7-F0D2-4C8A-BB0B-C489A89EC242}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0B79DCB7-F0D2-4C8A-BB0B-C489A89EC242}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0B79DCB7-F0D2-4C8A-BB0B-C489A89EC242}.Release|Any CPU.Build.0 = Release|Any CPU
+		{11529E94-3DD8-44FE-ACDD-BEEB080078BA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{11529E94-3DD8-44FE-ACDD-BEEB080078BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{11529E94-3DD8-44FE-ACDD-BEEB080078BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{11529E94-3DD8-44FE-ACDD-BEEB080078BA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

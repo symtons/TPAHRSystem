@@ -1,0 +1,6 @@
+@TPAHRSystem.API_HostAddress = http://localhost:5273
+
+GET {{TPAHRSystem.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
