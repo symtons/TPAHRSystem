@@ -96,7 +96,7 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasOne(e => e.Manager)
                     .WithMany(e => e.DirectReports)
                     .HasForeignKey(e => e.ManagerId)
-                    .OnDelete(DeleteBehavior.Restrict);
+                    .OnDelete(DeleteBehavior.NoAction);  // Changed from Restrict to NoAction
             });
 
             // Department Configuration
@@ -227,7 +227,7 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasOne(e => e.ReviewedByEmployee)
                     .WithMany()
                     .HasForeignKey(e => e.ReviewedBy)
-                    .OnDelete(DeleteBehavior.SetNull);
+                    .OnDelete(DeleteBehavior.NoAction);  // Changed from SetNull to NoAction
 
                 entity.HasIndex(e => new { e.EmployeeId, e.Status });
             });
