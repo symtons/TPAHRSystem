@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36121.58 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TPAHRSystem.Core", "TPAHRSystem.Core\TPAHRSystem.Core.csproj", "{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FA6E6170-0CB0-41B6-BAEB-E2C70815B020}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EB40D1B3-CC51-4C95-883B-0DC2460814B7}
+	EndGlobalSection
+EndGlobal
