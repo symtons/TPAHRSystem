@@ -40,6 +40,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.HasIndex(e => e.Email).IsUnique();
                 entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
                 entity.Property(e => e.PasswordHash).IsRequired().HasMaxLength(255);
@@ -53,6 +54,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<UserSession>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.HasIndex(e => e.SessionToken).IsUnique();
                 entity.Property(e => e.SessionToken).IsRequired().HasMaxLength(255);
                 entity.Property(e => e.IPAddress).HasMaxLength(50);
@@ -103,6 +105,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<Department>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Description).HasMaxLength(500);
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
@@ -112,6 +115,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<MenuItem>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Route).IsRequired().HasMaxLength(255);
                 entity.Property(e => e.Icon).HasMaxLength(100);
@@ -128,6 +132,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<RoleMenuPermission>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
 
@@ -143,6 +148,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<DashboardStat>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.Property(e => e.StatKey).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.StatName).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.StatValue).IsRequired().HasMaxLength(100);
@@ -158,6 +164,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<QuickAction>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.ActionKey).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.IconName).HasMaxLength(100);
@@ -171,6 +178,7 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<ActivityType>(entity =>
             {
                 entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).UseIdentityColumn(); // Auto-increment
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Description).HasMaxLength(255);
                 entity.Property(e => e.IconName).HasMaxLength(100);

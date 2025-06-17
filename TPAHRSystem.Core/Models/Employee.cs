@@ -3,19 +3,19 @@ namespace TPAHRSystem.Core.Models
 {
     public class Employee
     {
-        public Guid Id { get; set; }
-        public Guid? UserId { get; set; }
+        public int Id { get; set; }
+        public int? UserId { get; set; }
         public string EmployeeNumber { get; set; } = string.Empty;
         public string FirstName { get; set; } = string.Empty;
         public string LastName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string? PhoneNumber { get; set; }
-        public Guid DepartmentId { get; set; }
+        public int DepartmentId { get; set; }
         public string? JobTitle { get; set; }
         public string? EmployeeType { get; set; }
         public DateTime HireDate { get; set; }
         public string Status { get; set; } = "Active";
-        public Guid? ManagerId { get; set; }
+        public int? ManagerId { get; set; }
         public string? ProfilePictureUrl { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

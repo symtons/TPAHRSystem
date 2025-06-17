@@ -3,9 +3,9 @@ namespace TPAHRSystem.Core.Models
 {
     public class RoleMenuPermission
     {
-        public Guid Id { get; set; }
+        public int Id { get; set; }
         public string Role { get; set; } = string.Empty;
-        public Guid MenuItemId { get; set; }
+        public int MenuItemId { get; set; }
         public bool CanView { get; set; } = true;
         public bool CanEdit { get; set; } = false;
         public bool CanDelete { get; set; } = false;

@@ -3,7 +3,7 @@ namespace TPAHRSystem.Core.Models
 {
     public class QuickAction
     {
-        public Guid Id { get; set; }
+        public int Id { get; set; }
         public string Title { get; set; } = string.Empty;
         public string ActionKey { get; set; } = string.Empty;
         public string? IconName { get; set; }

@@ -3,7 +3,7 @@ namespace TPAHRSystem.Core.Models
 {
     public class DashboardStat
     {
-        public Guid Id { get; set; }
+        public int Id { get; set; }
         public string StatKey { get; set; } = string.Empty;
         public string StatName { get; set; } = string.Empty;
         public string StatValue { get; set; } = string.Empty;
