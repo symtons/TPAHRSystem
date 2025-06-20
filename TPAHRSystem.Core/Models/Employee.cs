@@ -20,14 +20,16 @@ namespace TPAHRSystem.Core.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation Properties
+        // Navigation Properties (Essential only)
         public virtual User? User { get; set; }
         public virtual Department? Department { get; set; }
         public virtual Employee? Manager { get; set; }
         public virtual ICollection<Employee> DirectReports { get; set; } = new List<Employee>();
-        public virtual ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
-        public virtual ICollection<TimeEntry> TimeEntries { get; set; } = new List<TimeEntry>();
-        public virtual ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
+
+        // Temporarily removed until we create these models:
+        // public virtual ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
+        // public virtual ICollection<TimeEntry> TimeEntries { get; set; } = new List<TimeEntry>();
+        // public virtual ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
 
         // Computed Properties
         public string FullName => $"{FirstName} {LastName}";

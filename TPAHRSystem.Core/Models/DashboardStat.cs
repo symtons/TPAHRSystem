@@ -1,5 +1,4 @@
-﻿// TPAHRSystem.Core/Models/DashboardStat.cs
-namespace TPAHRSystem.Core.Models
+﻿namespace TPAHRSystem.Core.Models
 {
     public class DashboardStat
     {

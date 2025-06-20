@@ -1,5 +1,4 @@
-﻿// TPAHRSystem.Core/Models/Department.cs
-namespace TPAHRSystem.Core.Models
+﻿namespace TPAHRSystem.Core.Models
 {
     public class Department
     {
@@ -9,7 +8,6 @@ namespace TPAHRSystem.Core.Models
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation Properties
         public virtual ICollection<Employee> Employees { get; set; } = new List<Employee>();
     }
 }

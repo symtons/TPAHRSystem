@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TPAHRSystem.Core.Models;
 using TPAHRSystem.Infrastructure.Data;
 
 namespace TPAHRSystem.API.Controllers
@@ -9,58 +10,50 @@ namespace TPAHRSystem.API.Controllers
     public class TestController : ControllerBase
     {
         private readonly TPADbContext _context;
+        private readonly ILogger<TestController> _logger;
 
-        public TestController(TPADbContext context)
+        public TestController(TPADbContext context, ILogger<TestController> logger)
         {
             _context = context;
+            _logger = logger;
+        }
+
+        [HttpGet("health")]
+        public IActionResult Health()
+        {
+            return Ok(new
+            {
+                status = "healthy",
+                timestamp = DateTime.UtcNow.ToString("o"),
+                api = "TPA HR Management System",
+                version = "1.0.0"
+            });
         }
 
         [HttpGet("database-connection")]
-        public async Task<IActionResult> TestDatabaseConnection()
+        public async Task<IActionResult> DatabaseConnection()
         {
             try
             {
-                var canConnect = await _context.Database.CanConnectAsync();
-                if (canConnect)
-                {
-                    var userCount = await _context.Users.CountAsync();
-                    var departmentCount = await _context.Departments.CountAsync();
+                await _context.Database.OpenConnectionAsync();
+                await _context.Database.CloseConnectionAsync();
 
-                    return Ok(new
-                    {
-                        success = true,
-                        message = "Database connection successful!",
-                        data = new
-                        {
-                            userCount,
-                            departmentCount,
-                            databaseName = _context.Database.GetDbConnection().Database,
-                            serverName = _context.Database.GetDbConnection().DataSource
-                        }
-                    });
-                }
-                else
+                return Ok(new
                 {
-                    return StatusCode(500, new { success = false, message = "Cannot connect to database" });
-                }
+                    status = "connected",
+                    timestamp = DateTime.UtcNow.ToString("o"),
+                    message = "Database connection successful"
+                });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
-            }
-        }
-
-        [HttpPost("seed-data")]
-        public async Task<IActionResult> SeedData()
-        {
-            try
-            {
-                await DataSeeder.SeedAsync(_context);
-                return Ok(new { success = true, message = "Data seeded successfully!" });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                _logger.LogError(ex, "Database connection failed");
+                return StatusCode(500, new
+                {
+                    status = "error",
+                    message = "Database connection failed",
+                    error = ex.Message
+                });
             }
         }
 
@@ -72,26 +65,56 @@ namespace TPAHRSystem.API.Controllers
                 var stats = await _context.DashboardStats
                     .Where(s => s.IsActive)
                     .OrderBy(s => s.SortOrder)
+                    .Select(s => new
+                    {
+                        id = s.Id,
+                        statKey = s.StatKey,
+                        statName = s.StatName,
+                        statValue = s.StatValue,
+                        statColor = s.StatColor,
+                        iconName = s.IconName,
+                        subtitle = s.Subtitle
+                    })
                     .ToListAsync();
 
-                return Ok(new { success = true, count = stats.Count, data = stats });
+                return Ok(new { success = true, data = stats });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                _logger.LogError(ex, "Error getting dashboard stats");
+                return StatusCode(500, new { success = false, message = "Failed to get dashboard stats" });
             }
         }
 
-        [HttpGet("health")]
-        public IActionResult HealthCheck()
+        [HttpGet("users")]
+        public async Task<IActionResult> GetUsers()
         {
-            return Ok(new
+            try
             {
-                status = "healthy",
-                timestamp = DateTime.UtcNow,
-                api = "TPA HR Management System",
-                version = "1.0.0"
-            });
+                var users = await _context.Users
+                    .Include(u => u.Employees)
+                    .Where(u => u.IsActive)
+                    .ToListAsync();
+
+                var result = users.Select(u => new
+                {
+                    id = u.Id,
+                    email = u.Email,
+                    role = u.Role,
+                    lastLogin = u.LastLogin,
+                    employeeName = u.Employees.Any()
+                        ? $"{u.Employees.First().FirstName} {u.Employees.First().LastName}"
+                        : "No Employee Record"
+                }).ToList();
+
+                return Ok(new { success = true, data = result });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting users");
+                return StatusCode(500, new { success = false, message = "Failed to get users" });
+            }
         }
     }
 }
+       

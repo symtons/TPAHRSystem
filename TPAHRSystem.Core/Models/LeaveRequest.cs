@@ -1,13 +1,12 @@
-﻿// TPAHRSystem.Core/Models/LeaveRequest.cs
-namespace TPAHRSystem.Core.Models
+﻿namespace TPAHRSystem.Core.Models
 {
     public class LeaveRequest
     {
         public int Id { get; set; }
         public int EmployeeId { get; set; }
         public string LeaveType { get; set; } = string.Empty;
-        public DateTime StartDate { get; set; }
-        public DateTime EndDate { get; set; }
+        public DateOnly StartDate { get; set; }
+        public DateOnly EndDate { get; set; }
         public int DaysRequested { get; set; }
         public string? Reason { get; set; }
         public string Status { get; set; } = "Pending";
@@ -18,6 +17,6 @@ namespace TPAHRSystem.Core.Models
 
         // Navigation Properties
         public virtual Employee Employee { get; set; } = null!;
-        public virtual Employee? ReviewedByEmployee { get; set; }
+        public virtual Employee? Reviewer { get; set; }
     }
 }

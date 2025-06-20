@@ -15,9 +15,10 @@ namespace TPAHRSystem.Core.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation Properties
-        public virtual Employee? Employee { get; set; }
-        public virtual ICollection<UserSession> UserSessions { get; set; } = new List<UserSession>();
+        // Navigation Properties - Fixed to match your Employee model
+        
         public virtual ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
+        public virtual ICollection<Employee> Employees { get; set; } = new List<Employee>();
+        public virtual ICollection<UserSession> UserSessions { get; set; } = new List<UserSession>();
     }
 }

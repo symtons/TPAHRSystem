@@ -1,5 +1,4 @@
-﻿// TPAHRSystem.Core/Models/UserSession.cs
-namespace TPAHRSystem.Core.Models
+﻿namespace TPAHRSystem.Core.Models
 {
     public class UserSession
     {
@@ -12,7 +11,6 @@ namespace TPAHRSystem.Core.Models
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        // Navigation Properties
         public virtual User User { get; set; } = null!;
     }
 }

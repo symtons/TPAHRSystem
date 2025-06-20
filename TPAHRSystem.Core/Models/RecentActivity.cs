@@ -3,16 +3,14 @@ namespace TPAHRSystem.Core.Models
 {
     public class RecentActivity
     {
-        public Guid Id { get; set; }
-        public Guid UserId { get; set; }
-        public Guid? EmployeeId { get; set; }
-        public Guid ActivityTypeId { get; set; }
+        public int Id { get; set; }
+        public int UserId { get; set; }
+        public int? EmployeeId { get; set; }
+        public int ActivityTypeId { get; set; }
         public string Action { get; set; } = string.Empty;
-        public string? EntityType { get; set; }
-        public Guid? EntityId { get; set; }
-        public string? Details { get; set; }
-        public string? IPAddress { get; set; }
-        public bool IsHighlighted { get; set; } = false;
+        public string EntityType { get; set; } = string.Empty;
+        public string Details { get; set; } = string.Empty;
+        public string IPAddress { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         // Navigation Properties
