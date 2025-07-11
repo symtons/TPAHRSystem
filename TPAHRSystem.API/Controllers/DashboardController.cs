@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// FIXED DASHBOARD CONTROLLER - REMOVE AUTHORIZATION FOR TESTING
+
 // File: TPAHRSystem.API/Controllers/DashboardController.cs (Replace existing)
 // =============================================================================
 

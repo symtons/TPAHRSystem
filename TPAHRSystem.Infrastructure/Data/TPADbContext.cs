@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// UPDATED TPADBCONTEXT - UNCOMMENT REQUIRED DBSETS
+// COMPLETE TPADBCONTEXT WITH ONBOARDING ENTITIES
 // File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs (Replace existing)
 // =============================================================================
 
@@ -21,9 +21,20 @@ namespace TPAHRSystem.Infrastructure.Data
         public DbSet<Department> Departments { get; set; } = null!;
         public DbSet<DashboardStat> DashboardStats { get; set; } = null!;
 
-        // UNCOMMENTED - Required DbSets for Dashboard functionality
-        public DbSet<LeaveRequest> LeaveRequests { get; set; } = null!;
+        // Time and Attendance DbSets
         public DbSet<TimeEntry> TimeEntries { get; set; } = null!;
+        public DbSet<TimeSheet> TimeSheets { get; set; } = null!;
+        public DbSet<Schedule> Schedules { get; set; } = null!;
+
+        // Onboarding DbSets - NEW
+        public DbSet<OnboardingTask> OnboardingTasks { get; set; } = null!;
+        public DbSet<OnboardingTemplate> OnboardingTemplates { get; set; } = null!;
+        public DbSet<OnboardingDocument> OnboardingDocuments { get; set; } = null!;
+        public DbSet<OnboardingProgress> OnboardingProgress { get; set; } = null!;
+        public DbSet<OnboardingChecklist> OnboardingChecklists { get; set; } = null!;
+
+        // Other existing DbSets
+        public DbSet<LeaveRequest> LeaveRequests { get; set; } = null!;
         public DbSet<QuickAction> QuickActions { get; set; } = null!;
         public DbSet<ActivityType> ActivityTypes { get; set; } = null!;
         public DbSet<RecentActivity> RecentActivities { get; set; } = null!;
@@ -34,6 +45,15 @@ namespace TPAHRSystem.Infrastructure.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            // Configure all entities
+            ConfigureUserEntities(modelBuilder);
+            ConfigureTimeAttendanceEntities(modelBuilder);
+            ConfigureOnboardingEntities(modelBuilder); // NEW
+            ConfigureOtherEntities(modelBuilder);
+        }
+
+        private void ConfigureUserEntities(ModelBuilder modelBuilder)
+        {
             // User Configuration
             modelBuilder.Entity<User>(entity =>
             {
@@ -93,7 +113,190 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             });
+        }
 
+        private void ConfigureTimeAttendanceEntities(ModelBuilder modelBuilder)
+        {
+            // TimeEntry Configuration
+            modelBuilder.Entity<TimeEntry>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Status).HasDefaultValue("Active").HasMaxLength(20);
+                entity.Property(e => e.TotalHours).HasColumnType("decimal(5,2)");
+
+                // Employee relationship
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Add indexes for performance
+                entity.HasIndex(e => new { e.EmployeeId, e.ClockIn });
+            });
+
+            // TimeSheet Configuration
+            modelBuilder.Entity<TimeSheet>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Status).HasDefaultValue("Draft").HasMaxLength(20);
+                entity.Property(e => e.TotalHours).HasColumnType("decimal(5,2)");
+                entity.Property(e => e.RegularHours).HasColumnType("decimal(5,2)");
+                entity.Property(e => e.OvertimeHours).HasColumnType("decimal(5,2)");
+
+                // Employee relationship
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Approver relationship
+                entity.HasOne(e => e.Approver)
+                      .WithMany()
+                      .HasForeignKey(e => e.ApprovedBy)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                // Add indexes for performance
+                entity.HasIndex(e => new { e.EmployeeId, e.WeekStartDate });
+            });
+
+            // Schedule Configuration
+            modelBuilder.Entity<Schedule>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.DayOfWeek).IsRequired();
+
+                // Employee relationship
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Add indexes for performance
+                entity.HasIndex(e => new { e.EmployeeId, e.DayOfWeek });
+            });
+        }
+
+        private void ConfigureOnboardingEntities(ModelBuilder modelBuilder)
+        {
+            // OnboardingTask Configuration
+            modelBuilder.Entity<OnboardingTask>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Category).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Status).IsRequired().HasMaxLength(20).HasDefaultValue("PENDING");
+                entity.Property(e => e.Priority).IsRequired().HasMaxLength(20).HasDefaultValue("MEDIUM");
+                entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
+
+                // Relationships
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Template)
+                      .WithMany(t => t.Tasks)
+                      .HasForeignKey(e => e.TemplateId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(e => e.AssignedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.AssignedById)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                // Indexes
+                entity.HasIndex(e => new { e.EmployeeId, e.Status });
+                entity.HasIndex(e => e.DueDate);
+                entity.HasIndex(e => e.Category);
+            });
+
+            // OnboardingTemplate Configuration
+            modelBuilder.Entity<OnboardingTemplate>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.ForRole).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
+
+                // Relationships
+                entity.HasOne(e => e.CreatedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.CreatedById)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // Indexes
+                entity.HasIndex(e => new { e.ForRole, e.IsActive });
+            });
+
+            // OnboardingDocument Configuration
+            modelBuilder.Entity<OnboardingDocument>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(50);
+
+                // Relationships
+                entity.HasOne(e => e.Task)
+                      .WithMany(t => t.Documents)
+                      .HasForeignKey(e => e.TaskId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.UploadedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.UploadedById)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                // Indexes
+                entity.HasIndex(e => new { e.TaskId, e.Required });
+            });
+
+            // OnboardingProgress Configuration
+            modelBuilder.Entity<OnboardingProgress>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.CompletionPercentage).HasColumnType("decimal(5,2)");
+                entity.Property(e => e.LastUpdated).HasDefaultValueSql("GETUTCDATE()");
+
+                // Relationships
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                // Unique constraint - one progress record per employee
+                entity.HasIndex(e => e.EmployeeId).IsUnique();
+            });
+
+            // OnboardingChecklist Configuration
+            modelBuilder.Entity<OnboardingChecklist>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.AssignedDate).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("ASSIGNED");
+
+                // Relationships
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Template)
+                      .WithMany()
+                      .HasForeignKey(e => e.TemplateId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(e => e.AssignedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.AssignedById)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // Indexes
+                entity.HasIndex(e => new { e.EmployeeId, e.Status });
+            });
+        }
+
+        private void ConfigureOtherEntities(ModelBuilder modelBuilder)
+        {
             // DashboardStat Configuration
             modelBuilder.Entity<DashboardStat>(entity =>
             {
@@ -101,7 +304,6 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.StatKey).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.StatName).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.StatValue).IsRequired().HasMaxLength(100);
-                entity.HasIndex(e => e.StatKey).IsUnique();
             });
 
             // QuickAction Configuration
@@ -154,7 +356,8 @@ namespace TPAHRSystem.Infrastructure.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.LeaveType).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.Status).HasDefaultValue("Pending").HasMaxLength(20);
+                entity.Property(e => e.Status).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.Reason).HasMaxLength(1000);
 
                 // Employee relationship
                 entity.HasOne(e => e.Employee)
@@ -162,39 +365,33 @@ namespace TPAHRSystem.Infrastructure.Data
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Reviewer relationship
-                entity.HasOne(e => e.Reviewer)
-                      .WithMany()
-                      .HasForeignKey(e => e.ReviewedBy)
-                      .OnDelete(DeleteBehavior.SetNull);
-            });
+                // Approver relationship
+                //entity.HasOne(e => e.Approver)
+                //      .WithMany()
+                //      .HasForeignKey(e => e.ApprovedBy)
+                //      .OnDelete(DeleteBehavior.SetNull);
 
-            // TimeEntry Configuration
-            modelBuilder.Entity<TimeEntry>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.Status).HasDefaultValue("Active").HasMaxLength(20);
-                entity.Property(e => e.TotalHours).HasColumnType("decimal(5,2)");
-
-                // Employee relationship
-                entity.HasOne(e => e.Employee)
-                      .WithMany()
-                      .HasForeignKey(e => e.EmployeeId)
-                      .OnDelete(DeleteBehavior.Cascade);
+                // Add indexes for performance
+                entity.HasIndex(e => new { e.EmployeeId, e.Status });
+                entity.HasIndex(e => e.StartDate);
             });
 
             // MenuItem Configuration
             modelBuilder.Entity<MenuItem>(entity =>
             {
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-                entity.Property(e => e.Route).IsRequired().HasMaxLength(255);
+                //entity.Property(e => e.Title).IsRequired().HasMaxLength(100);
+                //entity.Property(e => e.Path).IsRequired().HasMaxLength(200);
+                //entity.Property(e => e.IconName).HasMaxLength(50);
 
-                // Self-referencing relationship
+                // Parent relationship (self-referencing)
                 entity.HasOne(e => e.Parent)
                       .WithMany(e => e.Children)
                       .HasForeignKey(e => e.ParentId)
                       .OnDelete(DeleteBehavior.Restrict);
+
+                // Add indexes
+                entity.HasIndex(e => new { e.IsActive, e.SortOrder });
             });
 
             // RoleMenuPermission Configuration
@@ -202,13 +399,15 @@ namespace TPAHRSystem.Infrastructure.Data
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
-                entity.HasIndex(e => new { e.Role, e.MenuItemId }).IsUnique();
 
                 // MenuItem relationship
                 entity.HasOne(e => e.MenuItem)
                       .WithMany(m => m.RolePermissions)
                       .HasForeignKey(e => e.MenuItemId)
                       .OnDelete(DeleteBehavior.Cascade);
+
+                // Unique constraint on role + menu item
+                entity.HasIndex(e => new { e.Role, e.MenuItemId }).IsUnique();
             });
         }
     }

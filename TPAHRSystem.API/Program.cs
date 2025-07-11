@@ -26,6 +26,8 @@ builder.Services.AddDbContext<TPADbContext>(options =>
 builder.Services.AddScoped<TPAHRSystem.Application.Services.IAuthService, TPAHRSystem.Application.Services.AuthService>();
 // Add DashboardService in API layer
 builder.Services.AddScoped<TPAHRSystem.API.Services.IDashboardService, TPAHRSystem.API.Services.DashboardService>();
+// Add this line with your other service registrations
+builder.Services.AddScoped<ITimeAttendanceService, MockTimeAttendanceService>();
 
 // Configure JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "your-super-secret-jwt-key-that-is-at-least-256-bits-long!";
@@ -128,5 +130,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
 
 app.Run();

@@ -1,4 +1,4 @@
-﻿// TPAHRSystem.Core/Models/TimeEntry.cs
+﻿// File: TPAHRSystem.Core/Models/TimeEntry.cs (Replace existing)
 namespace TPAHRSystem.Core.Models
 {
     public class TimeEntry

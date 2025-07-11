@@ -12,8 +12,10 @@ namespace TPAHRSystem.Core.Models
         public string? PhoneNumber { get; set; }
         public int DepartmentId { get; set; }
         public string? JobTitle { get; set; }
+        public string? Position { get; set; }
         public string? EmployeeType { get; set; }
         public DateTime HireDate { get; set; }
+        public bool IsActive {  get; set; }
         public string Status { get; set; } = "Active";
         public int? ManagerId { get; set; }
         public string? ProfilePictureUrl { get; set; }
