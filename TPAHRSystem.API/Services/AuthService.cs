@@ -75,10 +75,22 @@ namespace TPAHRSystem.Application.Services
                     return (false, "Invalid email or password", null, null);
                 }
 
-                // Generate session token (but don't save to database)
+                
                 var sessionToken = GenerateSessionToken();
 
-                Console.WriteLine("🎉 Login successful!");
+            var session = new UserSession
+            {
+                UserId = user.Id,
+                SessionToken = sessionToken,
+                ExpiresAt = DateTime.UtcNow.AddHours(8), // 8 hour session
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.UserSessions.Add(session);
+            await _context.SaveChangesAsync();
+
+            Console.WriteLine("🎉 Login successful!");
                 return (true, "Login successful", user, sessionToken);
             //}
             //catch (Exception ex)
@@ -158,5 +170,9 @@ namespace TPAHRSystem.Application.Services
                 return null;
             }
         }
+
+
+
+
     }
 }

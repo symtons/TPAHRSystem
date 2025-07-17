@@ -1,5 +1,5 @@
 // =============================================================================
-// CORRECTED PROGRAM.CS
+// UPDATED PROGRAM.CS WITH FIXED CORS
 // File: TPAHRSystem.API/Program.cs (Replace existing)
 // =============================================================================
 
@@ -55,15 +55,33 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// Add CORS
+// UPDATED CORS - More permissive for development
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "https://localhost:3000")
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "https://localhost:3000",
+                "http://localhost:7062",
+                "https://localhost:7062",
+                "http://127.0.0.1:3000",
+                "https://127.0.0.1:3000",
+                "http://127.0.0.1:7062",
+                "https://127.0.0.1:7062"
+              )
               .AllowAnyHeader()
               .AllowAnyMethod()
+              .SetIsOriginAllowed(origin => true) // Allow any origin for development
               .AllowCredentials();
+    });
+
+    // Alternative: Very permissive policy for development debugging
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
@@ -122,14 +140,15 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Enable CORS
+// CRITICAL: Enable CORS BEFORE Authentication
+// Try the permissive policy first to fix CORS issues
 app.UseCors("AllowReactApp");
+// If still having issues, temporarily use: app.UseCors("AllowAll");
 
-// Add Authentication and Authorization
+// Add Authentication and Authorization AFTER CORS
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
 
 app.Run();

@@ -1,9 +1,4 @@
-﻿// =============================================================================
-// SIMPLIFIED TPADBCONTEXT - QUICK FIX FOR EF ERRORS
-// File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs (Replace existing)
-// =============================================================================
-
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using TPAHRSystem.Core.Models;
 
 namespace TPAHRSystem.Infrastructure.Data
@@ -64,7 +59,12 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
                 entity.HasIndex(e => e.Email).IsUnique();
             });
-
+            //RecentActivity
+            modelBuilder.Entity<RecentActivity>()
+               .HasOne(ra => ra.User)
+               .WithMany(u => u.RecentActivities)
+               .HasForeignKey(ra => ra.UserId)
+               .OnDelete(DeleteBehavior.Restrict);
             // Employee Configuration - SIMPLIFIED (No complex navigation properties)
             modelBuilder.Entity<Employee>(entity =>
             {
@@ -115,11 +115,12 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.SessionToken).IsRequired().HasMaxLength(500);
                 entity.HasIndex(e => e.SessionToken).IsUnique();
 
-                // EXPLICIT foreign key configuration to avoid UserId1 issue
+                // Explicit foreign key column name (optional)
                 entity.Property(e => e.UserId).HasColumnName("UserId");
 
+                // *** FIXED HERE: Specify the navigation property on User ***
                 entity.HasOne(e => e.User)
-                      .WithMany() // Don't specify back-navigation to avoid conflicts
+                      .WithMany(u => u.UserSessions) // <- Fix here
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });

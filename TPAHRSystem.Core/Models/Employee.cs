@@ -1,9 +1,4 @@
-﻿// =============================================================================
-// QUICK FIX - EMPLOYEE MODEL (TEMPORARY SOLUTION)
-// File: TPAHRSystem.Core/Models/Employee.cs (Replace existing)
-// =============================================================================
-
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TPAHRSystem.Core.Models
