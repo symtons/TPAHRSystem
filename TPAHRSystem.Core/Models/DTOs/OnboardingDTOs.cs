@@ -3,6 +3,7 @@
 // File: TPAHRSystem.Core/DTOs/OnboardingDTOs.cs (New file)
 // =============================================================================
 
+using Microsoft.AspNetCore.Http;
 using System.ComponentModel.DataAnnotations;
 
 namespace TPAHRSystem.Core.DTOs

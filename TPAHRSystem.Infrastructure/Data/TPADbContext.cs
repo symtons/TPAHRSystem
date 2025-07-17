@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// COMPLETE TPADBCONTEXT WITH ONBOARDING ENTITIES
+// SIMPLIFIED TPADBCONTEXT - QUICK FIX FOR EF ERRORS
 // File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs (Replace existing)
 // =============================================================================
 
@@ -26,7 +26,7 @@ namespace TPAHRSystem.Infrastructure.Data
         public DbSet<TimeSheet> TimeSheets { get; set; } = null!;
         public DbSet<Schedule> Schedules { get; set; } = null!;
 
-        // Onboarding DbSets - NEW
+        // Onboarding DbSets
         public DbSet<OnboardingTask> OnboardingTasks { get; set; } = null!;
         public DbSet<OnboardingTemplate> OnboardingTemplates { get; set; } = null!;
         public DbSet<OnboardingDocument> OnboardingDocuments { get; set; } = null!;
@@ -48,7 +48,7 @@ namespace TPAHRSystem.Infrastructure.Data
             // Configure all entities
             ConfigureUserEntities(modelBuilder);
             ConfigureTimeAttendanceEntities(modelBuilder);
-            ConfigureOnboardingEntities(modelBuilder); // NEW
+            ConfigureOnboardingEntities(modelBuilder);
             ConfigureOtherEntities(modelBuilder);
         }
 
@@ -65,7 +65,7 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasIndex(e => e.Email).IsUnique();
             });
 
-            // Employee Configuration
+            // Employee Configuration - SIMPLIFIED (No complex navigation properties)
             modelBuilder.Entity<Employee>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -73,25 +73,39 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.FirstName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.LastName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
-                entity.HasIndex(e => e.EmployeeNumber).IsUnique();
+                entity.Property(e => e.EmploymentStatus).HasDefaultValue("Active").HasMaxLength(20);
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
 
-                // User relationship
+                entity.HasIndex(e => e.EmployeeNumber).IsUnique();
+                entity.HasIndex(e => e.Email).IsUnique();
+
+                // ONLY configure basic relationships
                 entity.HasOne(e => e.User)
-                      .WithMany(u => u.Employees)
+                      .WithMany()
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.SetNull);
 
-                // Department relationship
                 entity.HasOne(e => e.Department)
-                      .WithMany(d => d.Employees)
+                      .WithMany()
                       .HasForeignKey(e => e.DepartmentId)
                       .OnDelete(DeleteBehavior.Restrict);
 
-                // Manager relationship
                 entity.HasOne(e => e.Manager)
                       .WithMany(e => e.DirectReports)
                       .HasForeignKey(e => e.ManagerId)
-                      .OnDelete(DeleteBehavior.SetNull);
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                // IGNORE all navigation properties that are causing issues
+                entity.Ignore(e => e.AssignedTasks);
+                entity.Ignore(e => e.OnboardingProgress);
+                entity.Ignore(e => e.OnboardingChecklists);
+                entity.Ignore(e => e.TimeEntries);
+                entity.Ignore(e => e.TimeSheets);
+                entity.Ignore(e => e.Schedules);
+                entity.Ignore(e => e.LeaveRequests);
+                entity.Ignore(e => e.Activities);
             });
 
             // UserSession Configuration
@@ -101,8 +115,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.SessionToken).IsRequired().HasMaxLength(500);
                 entity.HasIndex(e => e.SessionToken).IsUnique();
 
+                // EXPLICIT foreign key configuration to avoid UserId1 issue
+                entity.Property(e => e.UserId).HasColumnName("UserId");
+
                 entity.HasOne(e => e.User)
-                      .WithMany(u => u.UserSessions)
+                      .WithMany() // Don't specify back-navigation to avoid conflicts
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
@@ -124,13 +141,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Status).HasDefaultValue("Active").HasMaxLength(20);
                 entity.Property(e => e.TotalHours).HasColumnType("decimal(5,2)");
 
-                // Employee relationship
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Add indexes for performance
                 entity.HasIndex(e => new { e.EmployeeId, e.ClockIn });
             });
 
@@ -143,19 +158,16 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.RegularHours).HasColumnType("decimal(5,2)");
                 entity.Property(e => e.OvertimeHours).HasColumnType("decimal(5,2)");
 
-                // Employee relationship
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Approver relationship
                 entity.HasOne(e => e.Approver)
                       .WithMany()
                       .HasForeignKey(e => e.ApprovedBy)
                       .OnDelete(DeleteBehavior.SetNull);
 
-                // Add indexes for performance
                 entity.HasIndex(e => new { e.EmployeeId, e.WeekStartDate });
             });
 
@@ -165,13 +177,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.DayOfWeek).IsRequired();
 
-                // Employee relationship
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Add indexes for performance
                 entity.HasIndex(e => new { e.EmployeeId, e.DayOfWeek });
             });
         }
@@ -188,14 +198,13 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Priority).IsRequired().HasMaxLength(20).HasDefaultValue("MEDIUM");
                 entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
 
-                // Relationships
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
                 entity.HasOne(e => e.Template)
-                      .WithMany(t => t.Tasks)
+                      .WithMany()
                       .HasForeignKey(e => e.TemplateId)
                       .OnDelete(DeleteBehavior.SetNull);
 
@@ -204,7 +213,6 @@ namespace TPAHRSystem.Infrastructure.Data
                       .HasForeignKey(e => e.AssignedById)
                       .OnDelete(DeleteBehavior.SetNull);
 
-                // Indexes
                 entity.HasIndex(e => new { e.EmployeeId, e.Status });
                 entity.HasIndex(e => e.DueDate);
                 entity.HasIndex(e => e.Category);
@@ -218,13 +226,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.ForRole).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
 
-                // Relationships
                 entity.HasOne(e => e.CreatedBy)
                       .WithMany()
                       .HasForeignKey(e => e.CreatedById)
                       .OnDelete(DeleteBehavior.Restrict);
 
-                // Indexes
                 entity.HasIndex(e => new { e.ForRole, e.IsActive });
             });
 
@@ -235,9 +241,8 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.DocumentType).IsRequired().HasMaxLength(50);
 
-                // Relationships
                 entity.HasOne(e => e.Task)
-                      .WithMany(t => t.Documents)
+                      .WithMany()
                       .HasForeignKey(e => e.TaskId)
                       .OnDelete(DeleteBehavior.Cascade);
 
@@ -246,7 +251,6 @@ namespace TPAHRSystem.Infrastructure.Data
                       .HasForeignKey(e => e.UploadedById)
                       .OnDelete(DeleteBehavior.SetNull);
 
-                // Indexes
                 entity.HasIndex(e => new { e.TaskId, e.Required });
             });
 
@@ -257,13 +261,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.CompletionPercentage).HasColumnType("decimal(5,2)");
                 entity.Property(e => e.LastUpdated).HasDefaultValueSql("GETUTCDATE()");
 
-                // Relationships
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Unique constraint - one progress record per employee
                 entity.HasIndex(e => e.EmployeeId).IsUnique();
             });
 
@@ -274,7 +276,6 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.AssignedDate).HasDefaultValueSql("GETUTCDATE()");
                 entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("ASSIGNED");
 
-                // Relationships
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
@@ -290,7 +291,6 @@ namespace TPAHRSystem.Infrastructure.Data
                       .HasForeignKey(e => e.AssignedById)
                       .OnDelete(DeleteBehavior.Restrict);
 
-                // Indexes
                 entity.HasIndex(e => new { e.EmployeeId, e.Status });
             });
         }
@@ -332,21 +332,18 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Details).IsRequired().HasMaxLength(1000);
                 entity.Property(e => e.IPAddress).IsRequired().HasMaxLength(50);
 
-                // User relationship
                 entity.HasOne(e => e.User)
-                      .WithMany(u => u.RecentActivities)
+                      .WithMany()
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Employee relationship
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.SetNull);
 
-                // ActivityType relationship
                 entity.HasOne(e => e.ActivityType)
-                      .WithMany(at => at.RecentActivities)
+                      .WithMany()
                       .HasForeignKey(e => e.ActivityTypeId)
                       .OnDelete(DeleteBehavior.Restrict);
             });
@@ -359,19 +356,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Status).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.Reason).HasMaxLength(1000);
 
-                // Employee relationship
                 entity.HasOne(e => e.Employee)
                       .WithMany()
                       .HasForeignKey(e => e.EmployeeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Approver relationship
-                //entity.HasOne(e => e.Approver)
-                //      .WithMany()
-                //      .HasForeignKey(e => e.ApprovedBy)
-                //      .OnDelete(DeleteBehavior.SetNull);
-
-                // Add indexes for performance
                 entity.HasIndex(e => new { e.EmployeeId, e.Status });
                 entity.HasIndex(e => e.StartDate);
             });
@@ -380,17 +369,12 @@ namespace TPAHRSystem.Infrastructure.Data
             modelBuilder.Entity<MenuItem>(entity =>
             {
                 entity.HasKey(e => e.Id);
-                //entity.Property(e => e.Title).IsRequired().HasMaxLength(100);
-                //entity.Property(e => e.Path).IsRequired().HasMaxLength(200);
-                //entity.Property(e => e.IconName).HasMaxLength(50);
 
-                // Parent relationship (self-referencing)
                 entity.HasOne(e => e.Parent)
                       .WithMany(e => e.Children)
                       .HasForeignKey(e => e.ParentId)
                       .OnDelete(DeleteBehavior.Restrict);
 
-                // Add indexes
                 entity.HasIndex(e => new { e.IsActive, e.SortOrder });
             });
 
@@ -400,13 +384,11 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
 
-                // MenuItem relationship
                 entity.HasOne(e => e.MenuItem)
-                      .WithMany(m => m.RolePermissions)
+                      .WithMany()
                       .HasForeignKey(e => e.MenuItemId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                // Unique constraint on role + menu item
                 entity.HasIndex(e => new { e.Role, e.MenuItemId }).IsUnique();
             });
         }

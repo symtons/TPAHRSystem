@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using TPAHRSystem.API.Utilities;
 using TPAHRSystem.Application.Services;
 
@@ -27,8 +28,8 @@ namespace TPAHRSystem.API.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            try
-            {
+            //try
+            //{
                 _logger.LogInformation($"Login attempt for email: {request.Email}");
 
                 if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -60,12 +61,12 @@ namespace TPAHRSystem.API.Controllers
                     _logger.LogWarning($"Login failed for: {request.Email} - {result.Message}");
                     return BadRequest(new { success = false, message = result.Message });
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error during login for: {request.Email}");
-                return BadRequest(new { success = false, message = "An error occurred during login" });
-            }
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError(ex, $"Error during login for: {request.Email}");
+            //    return BadRequest(new { success = false, message = "An error occurred during login" });
+            //}
         }
 
         [HttpPost("logout")]
@@ -114,6 +115,9 @@ namespace TPAHRSystem.API.Controllers
                 return BadRequest(new { success = false, message = "An error occurred validating token" });
             }
         }
+       
+
+
     }
 
     public class LoginRequest

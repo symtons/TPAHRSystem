@@ -28,26 +28,33 @@ namespace TPAHRSystem.Application.Services
 
         public async Task<(bool Success, string Message, User? User, string? Token)> LoginAsync(string email, string password)
         {
-            try
-            {
+            //try
+            //{
                 Console.WriteLine($"🔍 Login attempt for: {email}");
 
                 // Find user by email
                 var user = await _context.Users
-                    .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower() && u.IsActive);
+                    .FirstOrDefaultAsync(u => u.Email == email);
 
                 Console.WriteLine($"👤 User found: {user != null}");
 
                 if (user == null)
                 {
-                    Console.WriteLine("❌ User not found or inactive");
+                    Console.WriteLine("❌ User not found");
                     return (false, "Invalid email or password", null, null);
                 }
 
-                // Check if account is locked
+                // Check if user is active
+                if (!user.IsActive)
+                {
+                    Console.WriteLine("❌ User account is not active");
+                    return (false, "Account is not active", null, null);
+                }
+
+                // Check if account is locked due to failed attempts
                 if (user.FailedLoginAttempts >= 5)
                 {
-                    Console.WriteLine("🔒 Account locked");
+                    Console.WriteLine("🔒 Account locked due to failed attempts");
                     return (false, "Account is locked due to too many failed attempts", null, null);
                 }
 
@@ -56,53 +63,30 @@ namespace TPAHRSystem.Application.Services
                 Console.WriteLine($"🧂 Stored salt: {user.Salt}");
                 Console.WriteLine($"📝 Input password: {password}");
 
+                // Generate hash for the input password
                 var computedHash = GeneratePasswordHash(password, user.Salt);
                 Console.WriteLine($"🔢 Computed hash: {computedHash}");
                 Console.WriteLine($"✅ Hashes match: {computedHash == user.PasswordHash}");
 
+                // Verify password
                 if (computedHash != user.PasswordHash)
                 {
-                    // Increment failed login attempts
-                    user.FailedLoginAttempts++;
-                    user.UpdatedAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
-
                     Console.WriteLine("❌ Password verification failed");
                     return (false, "Invalid email or password", null, null);
                 }
 
-                // Reset failed login attempts on successful login
-                user.FailedLoginAttempts = 0;
-                user.LastLogin = DateTime.UtcNow;
-                user.UpdatedAt = DateTime.UtcNow;
-
-                // Generate session token
+                // Generate session token (but don't save to database)
                 var sessionToken = GenerateSessionToken();
-
-                // Create session record
-                var session = new UserSession
-                {
-                    UserId = user.Id,
-                    SessionToken = sessionToken,
-                    ExpiresAt = DateTime.UtcNow.AddHours(8), // 8 hour session
-                    IsActive = true,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                _context.UserSessions.Add(session);
-                await _context.SaveChangesAsync();
 
                 Console.WriteLine("🎉 Login successful!");
                 return (true, "Login successful", user, sessionToken);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"💥 Login error: {ex.Message}");
-                Console.WriteLine($"📚 Stack trace: {ex.StackTrace}");
-                return (false, "An error occurred during login", null, null);
-            }
+            //}
+            //catch (Exception ex)
+            //{
+            //    Console.WriteLine($"💥 Login error: {ex.Message}");
+            //    return (false, "An error occurred during login", null, null);
+            //}
         }
-
         public string GeneratePasswordHash(string password, string salt)
         {
             // Use the EXACT same algorithm 
