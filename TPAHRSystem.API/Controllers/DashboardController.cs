@@ -1,14 +1,12 @@
 ﻿// =============================================================================
-
+// QUICK FIX: Complete DashboardController.cs with simplified Employee handling
 // File: TPAHRSystem.API/Controllers/DashboardController.cs (Replace existing)
 // =============================================================================
-
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TPAHRSystem.Infrastructure.Data;
 using TPAHRSystem.Core.Models;
-
 
 namespace TPAHRSystem.API.Controllers
 {
@@ -98,10 +96,11 @@ namespace TPAHRSystem.API.Controllers
             {
                 _logger.LogInformation($"Getting recent activities for user: {userId}, role: {role}");
 
+                // SIMPLIFIED QUERY - Don't include Employee to avoid schema mismatch
                 var query = _context.RecentActivities
                     .Include(ra => ra.User)
-                    .Include(ra => ra.Employee)
                     .Include(ra => ra.ActivityType)
+                    // .Include(ra => ra.Employee) // COMMENTED OUT to avoid schema issues
                     .AsQueryable();
 
                 // Filter based on role
@@ -131,11 +130,11 @@ namespace TPAHRSystem.API.Controllers
                 var activities = rawActivities.Select(ra => new
                 {
                     id = ra.Id,
-                    user = ra.Employee?.FullName ?? ra.User.Email.Split('@')[0],
+                    user = GetUserDisplayName(ra.User.Email), // Use email-based name
                     action = ra.Action,
                     details = ra.Details,
                     time = ra.CreatedAt,
-                    avatar = ra.Employee?.FirstName?.Substring(0, 1) ?? ra.User.Email.Substring(0, 1).ToUpper(),
+                    avatar = GetUserAvatar(ra.User.Email), // Use email first letter
                     color = ra.ActivityType.Color,
                     type = ra.ActivityType.Name,
                     isNew = ra.CreatedAt > DateTime.UtcNow.AddHours(-1)
@@ -177,8 +176,8 @@ namespace TPAHRSystem.API.Controllers
                 // Get recent activities (simplified for summary)
                 var recentActivities = await _context.RecentActivities
                     .Include(ra => ra.User)
-                    .Include(ra => ra.Employee)
                     .Include(ra => ra.ActivityType)
+                    // .Include(ra => ra.Employee) // COMMENTED OUT to avoid schema issues
                     .OrderByDescending(ra => ra.CreatedAt)
                     .Take(5)
                     .ToListAsync();
@@ -204,11 +203,11 @@ namespace TPAHRSystem.API.Controllers
                     recentActivities = recentActivities.Select(ra => new
                     {
                         id = ra.Id,
-                        user = ra.Employee?.FullName ?? ra.User.Email.Split('@')[0],
+                        user = GetUserDisplayName(ra.User.Email), // Use email-based name
                         action = ra.Action,
                         details = ra.Details,
                         time = ra.CreatedAt,
-                        avatar = ra.Employee?.FirstName?.Substring(0, 1) ?? ra.User.Email.Substring(0, 1).ToUpper(),
+                        avatar = GetUserAvatar(ra.User.Email), // Use email first letter
                         color = ra.ActivityType.Color,
                         type = ra.ActivityType.Name,
                         isNew = ra.CreatedAt > DateTime.UtcNow.AddHours(-1)
@@ -228,9 +227,6 @@ namespace TPAHRSystem.API.Controllers
         [HttpGet("test")]
         public IActionResult Test()
         {
-
-
-
             return Ok(new
             {
                 success = true,
@@ -238,6 +234,45 @@ namespace TPAHRSystem.API.Controllers
                 timestamp = DateTime.UtcNow
             });
         }
+
+        // Helper methods to extract user info from email
+        private static string GetUserDisplayName(string email)
+        {
+            if (string.IsNullOrEmpty(email))
+                return "Unknown User";
+
+            // Extract name from email (everything before @)
+            var namePart = email.Split('@')[0];
+
+            // Convert from common email formats to display names
+            if (namePart.Contains('.'))
+            {
+                var parts = namePart.Split('.');
+                if (parts.Length >= 2)
+                {
+                    // Format: first.last@domain.com -> First Last
+                    return $"{CapitalizeFirst(parts[0])} {CapitalizeFirst(parts[1])}";
+                }
+            }
+
+            // Fallback: just capitalize the whole name part
+            return CapitalizeFirst(namePart.Replace(".", " ").Replace("_", " "));
+        }
+
+        private static string GetUserAvatar(string email)
+        {
+            if (string.IsNullOrEmpty(email))
+                return "U";
+
+            return email.Substring(0, 1).ToUpper();
+        }
+
+        private static string CapitalizeFirst(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return input;
+
+            return char.ToUpper(input[0]) + input.Substring(1).ToLower();
+        }
     }
 }
-///

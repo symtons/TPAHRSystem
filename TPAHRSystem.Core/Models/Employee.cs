@@ -102,8 +102,9 @@ namespace TPAHRSystem.Core.Models
         [NotMapped]
         public ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
 
-        [NotMapped]
-        public ICollection<RecentActivity> Activities { get; set; } = new List<RecentActivity>();
+       
+
+        public ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
 
         // Computed Properties
         [NotMapped]

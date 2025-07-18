@@ -1,4 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿// =============================================================================
+// COMPLETE FIXED TPADbContext.cs - Final Version
+// File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs (Replace entire file)
+// =============================================================================
+
+using Microsoft.EntityFrameworkCore;
 using TPAHRSystem.Core.Models;
 
 namespace TPAHRSystem.Infrastructure.Data
@@ -59,29 +64,29 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
                 entity.HasIndex(e => e.Email).IsUnique();
             });
-            //RecentActivity
-            modelBuilder.Entity<RecentActivity>()
-               .HasOne(ra => ra.User)
-               .WithMany(u => u.RecentActivities)
-               .HasForeignKey(ra => ra.UserId)
-               .OnDelete(DeleteBehavior.Restrict);
-            // Employee Configuration - SIMPLIFIED (No complex navigation properties)
+
+            // Employee Configuration - Match existing database schema
             modelBuilder.Entity<Employee>(entity =>
             {
                 entity.HasKey(e => e.Id);
+
+                // Configure properties that exist in database
                 entity.Property(e => e.EmployeeNumber).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.FirstName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.LastName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
-                entity.Property(e => e.EmploymentStatus).HasDefaultValue("Active").HasMaxLength(20);
-                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.PhoneNumber).HasMaxLength(20);
+                entity.Property(e => e.JobTitle).HasMaxLength(100);
+              //  entity.Property(e => e.EmployeeType).HasMaxLength(50);
+               // entity.Property(e => e.Status).IsRequired().HasMaxLength(20).HasDefaultValue("Active");
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
                 entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
 
+                // Indexes for existing columns
                 entity.HasIndex(e => e.EmployeeNumber).IsUnique();
                 entity.HasIndex(e => e.Email).IsUnique();
 
-                // ONLY configure basic relationships
+                // Configure relationships only for columns that exist in database
                 entity.HasOne(e => e.User)
                       .WithMany()
                       .HasForeignKey(e => e.UserId)
@@ -97,15 +102,23 @@ namespace TPAHRSystem.Infrastructure.Data
                       .HasForeignKey(e => e.ManagerId)
                       .OnDelete(DeleteBehavior.Restrict);
 
-                // IGNORE all navigation properties that are causing issues
-                entity.Ignore(e => e.AssignedTasks);
-                entity.Ignore(e => e.OnboardingProgress);
-                entity.Ignore(e => e.OnboardingChecklists);
-                entity.Ignore(e => e.TimeEntries);
-                entity.Ignore(e => e.TimeSheets);
-                entity.Ignore(e => e.Schedules);
-                entity.Ignore(e => e.LeaveRequests);
-                entity.Ignore(e => e.Activities);
+                // IGNORE properties that don't exist in database schema
+                // These properties exist in the model but not in the database
+                entity.Ignore(e => e.DateOfBirth);
+                entity.Ignore(e => e.Gender);
+                entity.Ignore(e => e.Address);
+                entity.Ignore(e => e.City);
+                entity.Ignore(e => e.State);
+                entity.Ignore(e => e.ZipCode);
+                entity.Ignore(e => e.TerminationDate);
+                entity.Ignore(e => e.Position);
+                entity.Ignore(e => e.WorkLocation);
+                entity.Ignore(e => e.Salary);
+                entity.Ignore(e => e.EmploymentStatus);
+                entity.Ignore(e => e.IsActive);
+
+                // NOTE: Navigation properties marked as [NotMapped] in the model 
+                // are automatically ignored, so no need to explicitly ignore them here
             });
 
             // UserSession Configuration
@@ -115,12 +128,8 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.SessionToken).IsRequired().HasMaxLength(500);
                 entity.HasIndex(e => e.SessionToken).IsUnique();
 
-                // Explicit foreign key column name (optional)
-                entity.Property(e => e.UserId).HasColumnName("UserId");
-
-                // *** FIXED HERE: Specify the navigation property on User ***
                 entity.HasOne(e => e.User)
-                      .WithMany(u => u.UserSessions) // <- Fix here
+                      .WithMany(u => u.UserSessions)
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
             });
@@ -324,7 +333,7 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Color).HasDefaultValue("#1976d2").HasMaxLength(50);
             });
 
-            // RecentActivity Configuration
+            // *** FIXED RecentActivity Configuration - NO Employee Navigation ***
             modelBuilder.Entity<RecentActivity>(entity =>
             {
                 entity.HasKey(e => e.Id);
@@ -333,20 +342,28 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Details).IsRequired().HasMaxLength(1000);
                 entity.Property(e => e.IPAddress).IsRequired().HasMaxLength(50);
 
+                // Configure ONLY User and ActivityType relationships
                 entity.HasOne(e => e.User)
-                      .WithMany()
+                      .WithMany(u => u.RecentActivities)
                       .HasForeignKey(e => e.UserId)
                       .OnDelete(DeleteBehavior.Cascade);
 
-                entity.HasOne(e => e.Employee)
-                      .WithMany()
-                      .HasForeignKey(e => e.EmployeeId)
-                      .OnDelete(DeleteBehavior.SetNull);
-
                 entity.HasOne(e => e.ActivityType)
-                      .WithMany()
+                      .WithMany(at => at.RecentActivities)
                       .HasForeignKey(e => e.ActivityTypeId)
                       .OnDelete(DeleteBehavior.Restrict);
+
+                // IGNORE Employee navigation property to avoid schema issues
+                entity.Ignore(e => e.Employee);
+
+                // Keep EmployeeId as a simple nullable integer column (no FK)
+                entity.Property(e => e.EmployeeId).IsRequired(false);
+
+                // Add indexes for performance
+                entity.HasIndex(e => e.UserId);
+                entity.HasIndex(e => e.ActivityTypeId);
+                entity.HasIndex(e => e.CreatedAt);
+                entity.HasIndex(e => e.EmployeeId); // Index the column but don't create FK
             });
 
             // LeaveRequest Configuration
