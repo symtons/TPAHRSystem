@@ -306,8 +306,8 @@ namespace TPAHRSystem.API.Controllers
         [HttpGet("role-permissions")]
         public async Task<IActionResult> GetRolePermissions()
         {
-            try
-            {
+            //try
+            //{
                 var user = await GetCurrentUserAsync();
                 if (user == null)
                 {
@@ -343,17 +343,17 @@ namespace TPAHRSystem.API.Controllers
                     success = true,
                     data = rolePermissions
                 });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error loading role permissions");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error loading role permissions",
-                    error = ex.Message
-                });
-            }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error loading role permissions");
+        //        return StatusCode(500, new
+        //        {
+        //            success = false,
+        //            message = "Error loading role permissions",
+        //            error = ex.Message
+        //        });
+        //    }
         }
 
         /// <summary>
