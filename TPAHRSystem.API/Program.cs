@@ -1,13 +1,10 @@
 // =============================================================================
-// UPDATED PROGRAM.CS WITH FIXED CORS
-// File: TPAHRSystem.API/Program.cs (Replace existing)
+// SESSION-BASED PROGRAM.CS - NO JWT AUTHENTICATION
+// File: TPAHRSystem.API/Program.cs (REPLACE ENTIRE FILE)
 // =============================================================================
 
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using System.Text;
 using TPAHRSystem.Infrastructure.Data;
 using TPAHRSystem.Application.Services;
 using TPAHRSystem.API.Services;
@@ -22,40 +19,11 @@ builder.Services.AddDbContext<TPADbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Add Application Services
-// Keep AuthService in Application layer as it exists
 builder.Services.AddScoped<TPAHRSystem.Application.Services.IAuthService, TPAHRSystem.Application.Services.AuthService>();
-// Add DashboardService in API layer
 builder.Services.AddScoped<TPAHRSystem.API.Services.IDashboardService, TPAHRSystem.API.Services.DashboardService>();
-// Add this line with your other service registrations
 builder.Services.AddScoped<ITimeAttendanceService, MockTimeAttendanceService>();
 
-// Configure JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "your-super-secret-jwt-key-that-is-at-least-256-bits-long!";
-var key = Encoding.ASCII.GetBytes(jwtKey);
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.RequireHttpsMetadata = false; // Set to true in production
-    options.SaveToken = true;
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "TPAHRSystem",
-        ValidateAudience = true,
-        ValidAudience = builder.Configuration["Jwt:Audience"] ?? "TPAHRSystem",
-        ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
-    };
-});
-
-// UPDATED CORS - More permissive for development
+// Configure CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
@@ -64,28 +32,15 @@ builder.Services.AddCors(options =>
                 "http://localhost:3000",
                 "https://localhost:3000",
                 "http://localhost:7062",
-                "https://localhost:7062",
-                "http://127.0.0.1:3000",
-                "https://127.0.0.1:3000",
-                "http://127.0.0.1:7062",
-                "https://127.0.0.1:7062"
+                "https://localhost:7062"
               )
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .SetIsOriginAllowed(origin => true) // Allow any origin for development
               .AllowCredentials();
-    });
-
-    // Alternative: Very permissive policy for development debugging
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
     });
 });
 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+// Learn more about configuring Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -93,13 +48,13 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "TPA HR Management System API",
         Version = "v1",
-        Description = "API for Tennessee Personal Assistance HR Management System"
+        Description = "API for Tennessee Personal Assistance HR Management System with Session-Based Authentication"
     });
 
-    // Add JWT Authentication to Swagger
+    // Add Session Token Authentication to Swagger
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Description = "Session Token Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {session-token}\"",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
@@ -116,8 +71,8 @@ builder.Services.AddSwaggerGen(c =>
                     Type = ReferenceType.SecurityScheme,
                     Id = "Bearer"
                 },
-                Scheme = "oauth2",
-                Name = "Bearer",
+                Scheme = "Bearer",
+                Name = "Authorization",
                 In = ParameterLocation.Header,
             },
             new List<string>()
@@ -138,17 +93,82 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseHttpsRedirection();
-
-// CRITICAL: Enable CORS BEFORE Authentication
-// Try the permissive policy first to fix CORS issues
+// CORS must come before other middleware
 app.UseCors("AllowReactApp");
-// If still having issues, temporarily use: app.UseCors("AllowAll");
 
-// Add Authentication and Authorization AFTER CORS
-app.UseAuthentication();
-app.UseAuthorization();
+// Simple request logging
+app.Use(async (context, next) =>
+{
+    Console.WriteLine($"?? Request: {context.Request.Method} {context.Request.Path}");
 
+    // Log authorization header for debugging
+    var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(authHeader))
+    {
+        var token = authHeader.StartsWith("Bearer ") ? authHeader.Substring("Bearer ".Length) : authHeader;
+        Console.WriteLine($"?? Auth Token: {token.Substring(0, Math.Min(20, token.Length))}...");
+    }
+    else
+    {
+        Console.WriteLine("?? No auth header");
+    }
+
+    await next();
+
+    Console.WriteLine($"?? Response: {context.Response.StatusCode}");
+});
+
+// Health Check Endpoint
+app.MapGet("/health", () => new
+{
+    status = "healthy",
+    timestamp = DateTime.UtcNow.ToString("o"),
+    api = "TPA HR Management System",
+    version = "1.0.0",
+    authType = "Session-based"
+});
+
+// Map Controllers
 app.MapControllers();
+
+// Simple database check (Development only)
+if (app.Environment.IsDevelopment())
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var context = scope.ServiceProvider.GetRequiredService<TPADbContext>();
+
+        try
+        {
+            if (await context.Database.CanConnectAsync())
+            {
+                Console.WriteLine("? Database connection successful");
+
+                var userCount = await context.Users.CountAsync();
+                var menuCount = await context.MenuItems.CountAsync();
+                var permissionCount = await context.RoleMenuPermissions.CountAsync();
+                var activeSessionCount = await context.UserSessions.CountAsync(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow);
+
+                Console.WriteLine($"?? Database Status:");
+                Console.WriteLine($"   Users: {userCount}");
+                Console.WriteLine($"   Menu Items: {menuCount}");
+                Console.WriteLine($"   Role Permissions: {permissionCount}");
+                Console.WriteLine($"   Active Sessions: {activeSessionCount}");
+            }
+            else
+            {
+                Console.WriteLine("? Database connection failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"?? Error during database initialization: {ex.Message}");
+        }
+    }
+}
+
+Console.WriteLine("?? TPA HR Management System API started successfully");
+Console.WriteLine("?? Authentication: Session-based tokens");
+Console.WriteLine("?? Menu System: Role-based permissions");
 
 app.Run();
