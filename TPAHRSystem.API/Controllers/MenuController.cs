@@ -1,6 +1,6 @@
 ﻿// =============================================================================
 // SESSION-BASED MENU CONTROLLER - WORKS WITH YOUR EXISTING AUTH SYSTEM
-// File: TPAHRSystem.API/Controllers/MenuController.cs (REPLACE ENTIRE FILE)
+// File: TPAHRSystem.API/Controllers/MenuController.cs (CURRENT VERSION)
 // =============================================================================
 
 using Microsoft.AspNetCore.Mvc;
@@ -35,39 +35,14 @@ namespace TPAHRSystem.API.Controllers
 
         private async Task<User?> GetCurrentUserAsync()
         {
-            try
-            {
-                var token = GetTokenFromHeader();
-                if (string.IsNullOrEmpty(token))
-                {
-                    _logger.LogWarning("No authorization token provided");
-                    return null;
-                }
+            var token = GetTokenFromHeader();
+            if (string.IsNullOrEmpty(token)) return null;
 
-                _logger.LogInformation($"Looking up user with token: {token.Substring(0, Math.Min(10, token.Length))}...");
+            var userSession = await _context.UserSessions
+                .Include(s => s.User)
+                .FirstOrDefaultAsync(s => s.SessionToken == token && s.ExpiresAt > DateTime.UtcNow);
 
-                var userSession = await _context.UserSessions
-                    .Include(s => s.User)
-                    .FirstOrDefaultAsync(s => s.SessionToken == token &&
-                                             s.ExpiresAt > DateTime.UtcNow &&
-                                             s.IsActive);
-
-                if (userSession?.User != null)
-                {
-                    _logger.LogInformation($"User found: {userSession.User.Email} (Role: {userSession.User.Role})");
-                    return userSession.User;
-                }
-                else
-                {
-                    _logger.LogWarning("No valid session found for token");
-                    return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting current user from session");
-                return null;
-            }
+            return userSession?.User;
         }
 
         private async Task<Employee?> GetCurrentEmployeeAsync()
@@ -75,11 +50,8 @@ namespace TPAHRSystem.API.Controllers
             var user = await GetCurrentUserAsync();
             if (user == null) return null;
 
-            // Don't use .Include(e => e.Department) since we ignored the navigation property
-            var employee = await _context.Employees
+            return await _context.Employees
                 .FirstOrDefaultAsync(e => e.UserId == user.Id);
-
-            return employee;
         }
 
         private async Task<string?> GetDepartmentNameAsync(int? departmentId)
@@ -93,20 +65,19 @@ namespace TPAHRSystem.API.Controllers
         }
 
         // =============================================================================
-        // MENU ENDPOINTS - SESSION-BASED AUTHENTICATION
+        // MAIN MENU ENDPOINTS
         // =============================================================================
 
         /// <summary>
-        /// Get user's menu items based on their role and permissions
+        /// Get user's accessible menu items based on their role and department
         /// </summary>
-        [HttpGet("user-menus")]
+        [HttpGet]
         public async Task<IActionResult> GetUserMenus()
         {
-
             var user = await GetCurrentUserAsync();
             if (user == null)
             {
-                return Unauthorized(new { success = false, message = "Authentication required. Please provide a valid session token." });
+                return Unauthorized(new { success = false, message = "Please provide a valid session token." });
             }
 
             var employee = await GetCurrentEmployeeAsync();
@@ -244,7 +215,408 @@ namespace TPAHRSystem.API.Controllers
         }
 
         // =============================================================================
-        // MENU MANAGEMENT ENDPOINTS (Admin/SuperAdmin Only)
+        // MENU CRUD OPERATIONS (SuperAdmin Only)
+        // =============================================================================
+
+        /// <summary>
+        /// Create a new menu item (SuperAdmin only)
+        /// </summary>
+        [HttpPost]
+        public async Task<IActionResult> CreateMenuItem([FromBody] CreateMenuRequest request)
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                if (user.Role != "SuperAdmin")
+                {
+                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+                }
+
+                // Validate parent exists if specified
+                if (request.ParentId.HasValue)
+                {
+                    var parentExists = await _context.MenuItems.AnyAsync(m => m.Id == request.ParentId);
+                    if (!parentExists)
+                    {
+                        return BadRequest(new { success = false, message = "Parent menu item not found" });
+                    }
+                }
+
+                var menuItem = new MenuItem
+                {
+                    Name = request.Name,
+                    Route = request.Route,
+                    Icon = request.Icon,
+                    ParentId = request.ParentId,
+                    SortOrder = request.SortOrder,
+                    IsActive = true,
+                    RequiredPermission = request.RequiredPermission,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.MenuItems.Add(menuItem);
+                await _context.SaveChangesAsync();
+
+                // Create role permissions if specified
+                if (request.RolePermissions != null && request.RolePermissions.Any())
+                {
+                    foreach (var rolePermission in request.RolePermissions)
+                    {
+                        var permission = new RoleMenuPermission
+                        {
+                            MenuItemId = menuItem.Id,
+                            Role = rolePermission.Role,
+                            CanView = rolePermission.CanView,
+                            CanEdit = rolePermission.CanEdit,
+                            CanDelete = rolePermission.CanDelete
+                        };
+                        _context.RoleMenuPermissions.Add(permission);
+                    }
+                    await _context.SaveChangesAsync();
+                }
+
+                _logger.LogInformation($"Menu item '{menuItem.Name}' created by {user.Email}");
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = menuItem.Id,
+                        name = menuItem.Name,
+                        route = menuItem.Route,
+                        message = "Menu item created successfully"
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating menu item");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error creating menu item",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Update an existing menu item (SuperAdmin only)
+        /// </summary>
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateMenuItem(int id, [FromBody] UpdateMenuRequest request)
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                if (user.Role != "SuperAdmin")
+                {
+                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+                }
+
+                var menuItem = await _context.MenuItems.FindAsync(id);
+                if (menuItem == null)
+                {
+                    return NotFound(new { success = false, message = "Menu item not found" });
+                }
+
+                // Update properties only if provided
+                if (!string.IsNullOrEmpty(request.Name))
+                    menuItem.Name = request.Name;
+
+                if (!string.IsNullOrEmpty(request.Route))
+                    menuItem.Route = request.Route;
+
+                if (request.Icon != null)
+                    menuItem.Icon = request.Icon;
+
+                if (request.SortOrder.HasValue)
+                    menuItem.SortOrder = request.SortOrder.Value;
+
+                if (request.IsActive.HasValue)
+                    menuItem.IsActive = request.IsActive.Value;
+
+                if (request.RequiredPermission != null)
+                    menuItem.RequiredPermission = request.RequiredPermission;
+
+                // Handle parent change
+                if (request.ParentId.HasValue)
+                {
+                    if (request.ParentId.Value == 0)
+                    {
+                        menuItem.ParentId = null;
+                    }
+                    else
+                    {
+                        var parentExists = await _context.MenuItems.AnyAsync(m => m.Id == request.ParentId.Value);
+                        if (!parentExists)
+                        {
+                            return BadRequest(new { success = false, message = "Parent menu item not found" });
+                        }
+
+                        // Prevent circular reference
+                        if (request.ParentId.Value == id)
+                        {
+                            return BadRequest(new { success = false, message = "Menu item cannot be its own parent" });
+                        }
+
+                        menuItem.ParentId = request.ParentId.Value;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation($"Menu item '{menuItem.Name}' updated by {user.Email}");
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = menuItem.Id,
+                        name = menuItem.Name,
+                        route = menuItem.Route,
+                        message = "Menu item updated successfully"
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error updating menu item {id}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error updating menu item",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Delete a menu item (SuperAdmin only)
+        /// </summary>
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteMenuItem(int id)
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                if (user.Role != "SuperAdmin")
+                {
+                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+                }
+
+                var menuItem = await _context.MenuItems
+                    .Include(m => m.Children)
+                    .Include(m => m.RolePermissions)
+                    .FirstOrDefaultAsync(m => m.Id == id);
+
+                if (menuItem == null)
+                {
+                    return NotFound(new { success = false, message = "Menu item not found" });
+                }
+
+                // Check if menu has children
+                if (menuItem.Children.Any())
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = "Cannot delete menu item with child items. Delete children first or move them to another parent.",
+                        childCount = menuItem.Children.Count
+                    });
+                }
+
+                var menuName = menuItem.Name;
+
+                // Remove role permissions first
+                _context.RoleMenuPermissions.RemoveRange(menuItem.RolePermissions);
+
+                // Remove menu item
+                _context.MenuItems.Remove(menuItem);
+
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation($"Menu item '{menuName}' deleted by {user.Email}");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Menu item '{menuName}' deleted successfully"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error deleting menu item {id}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error deleting menu item",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Update role permissions for a menu item (SuperAdmin only)
+        /// </summary>
+        [HttpPost("{menuId}/permissions")]
+        public async Task<IActionResult> UpdateMenuPermissions(int menuId, [FromBody] List<RolePermissionRequest> permissions)
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                if (user.Role != "SuperAdmin")
+                {
+                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+                }
+
+                var menuItem = await _context.MenuItems.FindAsync(menuId);
+                if (menuItem == null)
+                {
+                    return NotFound(new { success = false, message = "Menu item not found" });
+                }
+
+                // Remove existing permissions for this menu
+                var existingPermissions = await _context.RoleMenuPermissions
+                    .Where(rmp => rmp.MenuItemId == menuId)
+                    .ToListAsync();
+
+                _context.RoleMenuPermissions.RemoveRange(existingPermissions);
+
+                // Add new permissions
+                foreach (var permission in permissions)
+                {
+                    var rolePermission = new RoleMenuPermission
+                    {
+                        MenuItemId = menuId,
+                        Role = permission.Role,
+                        CanView = permission.CanView,
+                        CanEdit = permission.CanEdit,
+                        CanDelete = permission.CanDelete
+                    };
+                    _context.RoleMenuPermissions.Add(rolePermission);
+                }
+
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation($"Permissions updated for menu '{menuItem.Name}' by {user.Email}");
+
+                return Ok(new
+                {
+                    success = true,
+                    message = "Menu permissions updated successfully",
+                    data = new
+                    {
+                        menuId = menuId,
+                        menuName = menuItem.Name,
+                        permissionsCount = permissions.Count
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error updating permissions for menu {menuId}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error updating menu permissions",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get a specific menu item for editing (SuperAdmin only)
+        /// </summary>
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetMenuItem(int id)
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                if (user.Role != "SuperAdmin")
+                {
+                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+                }
+
+                var menuItem = await _context.MenuItems
+                    .Include(m => m.Parent)
+                    .Include(m => m.Children)
+                    .Include(m => m.RolePermissions)
+                    .FirstOrDefaultAsync(m => m.Id == id);
+
+                if (menuItem == null)
+                {
+                    return NotFound(new { success = false, message = "Menu item not found" });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        id = menuItem.Id,
+                        name = menuItem.Name,
+                        route = menuItem.Route,
+                        icon = menuItem.Icon,
+                        parentId = menuItem.ParentId,
+                        parentName = menuItem.Parent?.Name,
+                        sortOrder = menuItem.SortOrder,
+                        isActive = menuItem.IsActive,
+                        requiredPermission = menuItem.RequiredPermission,
+                        createdAt = menuItem.CreatedAt,
+                        childrenCount = menuItem.Children.Count,
+                        rolePermissions = menuItem.RolePermissions.Select(rp => new
+                        {
+                            role = rp.Role,
+                            canView = rp.CanView,
+                            canEdit = rp.CanEdit,
+                            canDelete = rp.CanDelete
+                        }).ToList()
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error getting menu item {id}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error retrieving menu item",
+                    error = ex.Message
+                });
+            }
+        }
+
+        // =============================================================================
+        // ADMIN ENDPOINTS
         // =============================================================================
 
         /// <summary>
@@ -306,54 +678,41 @@ namespace TPAHRSystem.API.Controllers
         [HttpGet("role-permissions")]
         public async Task<IActionResult> GetRolePermissions()
         {
-            //try
-            //{
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
+            var user = await GetCurrentUserAsync();
+            if (user == null)
+            {
+                return Unauthorized(new { success = false, message = "Authentication required" });
+            }
 
-                // Only SuperAdmin can view all role permissions
-                if (user.Role != "SuperAdmin")
-                {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
+            // Only SuperAdmin can view all role permissions
+            if (user.Role != "SuperAdmin")
+            {
+                return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+            }
 
-                var rolePermissions = await _context.RoleMenuPermissions
-                    .Include(rmp => rmp.MenuItem)
-                    .GroupBy(rmp => rmp.Role)
-                    .Select(g => new
+            var rolePermissions = await _context.RoleMenuPermissions
+                .Include(rmp => rmp.MenuItem)
+                .GroupBy(rmp => rmp.Role)
+                .Select(g => new
+                {
+                    role = g.Key,
+                    permissions = g.Select(rmp => new
                     {
-                        role = g.Key,
-                        permissions = g.Select(rmp => new
-                        {
-                            menuId = rmp.MenuItemId,
-                            menuName = rmp.MenuItem.Name,
-                            menuRoute = rmp.MenuItem.Route,
-                            canView = rmp.CanView,
-                            canEdit = rmp.CanEdit,
-                            canDelete = rmp.CanDelete
-                        }).ToList()
-                    })
-                    .ToListAsync();
+                        menuId = rmp.MenuItemId,
+                        menuName = rmp.MenuItem.Name,
+                        menuRoute = rmp.MenuItem.Route,
+                        canView = rmp.CanView,
+                        canEdit = rmp.CanEdit,
+                        canDelete = rmp.CanDelete
+                    }).ToList()
+                })
+                .ToListAsync();
 
-                return Ok(new
-                {
-                    success = true,
-                    data = rolePermissions
-                });
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        _logger.LogError(ex, "Error loading role permissions");
-        //        return StatusCode(500, new
-        //        {
-        //            success = false,
-        //            message = "Error loading role permissions",
-        //            error = ex.Message
-        //        });
-        //    }
+            return Ok(new
+            {
+                success = true,
+                data = rolePermissions
+            });
         }
 
         /// <summary>
@@ -542,11 +901,73 @@ namespace TPAHRSystem.API.Controllers
     }
 
     // =============================================================================
-    // REQUEST MODELS
+    // REQUEST/RESPONSE MODELS
     // =============================================================================
 
     /// <summary>
-    /// Request models for menu operations
+    /// Request model for creating a new menu item
+    /// </summary>
+    public class CreateMenuRequest
+    {
+        [Required]
+        [StringLength(100)]
+        public string Name { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(200)]
+        public string Route { get; set; } = string.Empty;
+
+        [StringLength(50)]
+        public string? Icon { get; set; }
+
+        public int? ParentId { get; set; }
+
+        public int SortOrder { get; set; } = 0;
+
+        [StringLength(100)]
+        public string? RequiredPermission { get; set; }
+
+        public List<RolePermissionRequest>? RolePermissions { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for updating an existing menu item
+    /// </summary>
+    public class UpdateMenuRequest
+    {
+        [StringLength(100)]
+        public string? Name { get; set; }
+
+        [StringLength(200)]
+        public string? Route { get; set; }
+
+        [StringLength(50)]
+        public string? Icon { get; set; }
+
+        public int? ParentId { get; set; }
+
+        public int? SortOrder { get; set; }
+
+        public bool? IsActive { get; set; }
+
+        [StringLength(100)]
+        public string? RequiredPermission { get; set; }
+    }
+
+    /// <summary>
+    /// Request model for role permissions
+    /// </summary>
+    public class RolePermissionRequest
+    {
+        [Required]
+        public string Role { get; set; } = string.Empty;
+        public bool CanView { get; set; } = false;
+        public bool CanEdit { get; set; } = false;
+        public bool CanDelete { get; set; } = false;
+    }
+
+    /// <summary>
+    /// Request models for menu operations (kept for compatibility)
     /// </summary>
     public class MenuPermissionRequest
     {
