@@ -1,6 +1,6 @@
 ﻿// =============================================================================
-// SESSION-BASED MENU CONTROLLER - WORKS WITH YOUR EXISTING AUTH SYSTEM
-// File: TPAHRSystem.API/Controllers/MenuController.cs (CURRENT VERSION)
+// MENU CONTROLLER - FINAL CLEAN VERSION
+// File: TPAHRSystem.API/Controllers/MenuController.cs (REPLACE ENTIRE FILE)
 // =============================================================================
 
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +25,7 @@ namespace TPAHRSystem.API.Controllers
         }
 
         // =============================================================================
-        // SESSION-BASED AUTHENTICATION HELPERS
+        // AUTHENTICATION HELPERS
         // =============================================================================
 
         private string? GetTokenFromHeader()
@@ -50,18 +50,47 @@ namespace TPAHRSystem.API.Controllers
             var user = await GetCurrentUserAsync();
             if (user == null) return null;
 
-            return await _context.Employees
-                .FirstOrDefaultAsync(e => e.UserId == user.Id);
+            try
+            {
+                return await _context.Employees
+                    .Where(e => e.UserId == user.Id)
+                    .Select(e => new Employee
+                    {
+                        Id = e.Id,
+                        UserId = e.UserId,
+                        FirstName = e.FirstName ?? "",
+                        LastName = e.LastName ?? "",
+                        DepartmentId = e.DepartmentId,
+                        IsActive = e.IsActive ,
+                        CreatedAt = e.CreatedAt
+                    })
+                    .FirstOrDefaultAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error fetching employee data for user {user.Id}");
+                return null;
+            }
         }
 
         private async Task<string?> GetDepartmentNameAsync(int? departmentId)
         {
             if (!departmentId.HasValue) return null;
 
-            var department = await _context.Departments
-                .FirstOrDefaultAsync(d => d.Id == departmentId.Value);
+            try
+            {
+                var department = await _context.Departments
+                    .Where(d => d.Id == departmentId.Value)
+                    .Select(d => d.Name)
+                    .FirstOrDefaultAsync();
 
-            return department?.Name;
+                return department;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error fetching department name for ID {departmentId}");
+                return null;
+            }
         }
 
         // =============================================================================
@@ -74,38 +103,61 @@ namespace TPAHRSystem.API.Controllers
         [HttpGet]
         public async Task<IActionResult> GetUserMenus()
         {
-            var user = await GetCurrentUserAsync();
-            if (user == null)
+            try
             {
-                return Unauthorized(new { success = false, message = "Please provide a valid session token." });
-            }
-
-            var employee = await GetCurrentEmployeeAsync();
-            var departmentName = await GetDepartmentNameAsync(employee?.DepartmentId);
-
-            _logger.LogInformation($"Loading menus for user {user.Email} with role {user.Role}");
-
-            // Get role-based menus using the helper method
-            var menuItems = await _context.GetUserMenuItemsAsync(user.Role, employee?.DepartmentId);
-
-            // Build hierarchical menu structure
-            var hierarchicalMenus = BuildMenuHierarchy(menuItems);
-
-            return Ok(new
-            {
-                success = true,
-                data = new
+                var user = await GetCurrentUserAsync();
+                if (user == null)
                 {
-                    userRole = user.Role,
-                    userId = user.Id,
-                    userEmail = user.Email,
-                    departmentId = employee?.DepartmentId,
-                    departmentName = departmentName,
-                    menus = hierarchicalMenus,
-                    totalMenus = menuItems.Count,
-                    lastUpdated = DateTime.UtcNow
+                    return Unauthorized(new { success = false, message = "Please provide a valid session token." });
                 }
-            });
+
+                var employee = await GetCurrentEmployeeAsync();
+                var departmentName = await GetDepartmentNameAsync(employee?.DepartmentId);
+
+                _logger.LogInformation($"Loading menus for user {user.Email} with role {user.Role}");
+
+                // Get all active menu items with role permissions
+                var allMenus = await _context.MenuItems
+                    .Include(m => m.Parent)
+                    .Include(m => m.Children)
+                    .Include(m => m.RolePermissions)
+                    .Where(m => m.IsActive)
+                    .OrderBy(m => m.SortOrder)
+                    .ThenBy(m => m.Name)
+                    .ToListAsync();
+
+                // Filter menus based on user role
+                var accessibleMenus = allMenus.Where(menu => HasMenuAccess(menu, user.Role)).ToList();
+
+                // Build hierarchical structure for user display
+                var hierarchicalMenus = BuildUserMenuTree(accessibleMenus);
+
+                return Ok(new
+                {
+                    success = true,
+                    data = new
+                    {
+                        userRole = user.Role,
+                        userId = user.Id,
+                        userEmail = user.Email,
+                        departmentId = employee?.DepartmentId,
+                        departmentName = departmentName,
+                        menus = hierarchicalMenus,
+                        totalMenus = accessibleMenus.Count,
+                        lastUpdated = DateTime.UtcNow
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error loading user menus");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error loading menu items",
+                    error = ex.Message
+                });
+            }
         }
 
         /// <summary>
@@ -122,10 +174,25 @@ namespace TPAHRSystem.API.Controllers
                     return Unauthorized(new { success = false, message = "Authentication required" });
                 }
 
-                // Use the database helper method to check permissions
-                var canView = await _context.CheckUserMenuPermissionAsync(user.Role, menuName, "VIEW");
-                var canEdit = await _context.CheckUserMenuPermissionAsync(user.Role, menuName, "EDIT");
-                var canDelete = await _context.CheckUserMenuPermissionAsync(user.Role, menuName, "DELETE");
+                // Find the menu and check permissions
+                var menuItem = await _context.MenuItems
+                    .Include(m => m.RolePermissions)
+                    .FirstOrDefaultAsync(m => m.Name.ToLower() == menuName.ToLower() && m.IsActive);
+
+                if (menuItem == null)
+                {
+                    return NotFound(new { success = false, message = "Menu item not found" });
+                }
+
+                var rolePermission = menuItem.RolePermissions
+                    .FirstOrDefault(rp => rp.Role == user.Role);
+
+                var permissions = new
+                {
+                    canView = rolePermission?.CanView ?? false,
+                    canEdit = rolePermission?.CanEdit ?? false,
+                    canDelete = rolePermission?.CanDelete ?? false
+                };
 
                 return Ok(new
                 {
@@ -134,12 +201,7 @@ namespace TPAHRSystem.API.Controllers
                     {
                         menuName = menuName,
                         userRole = user.Role,
-                        permissions = new
-                        {
-                            canView = canView,
-                            canEdit = canEdit,
-                            canDelete = canDelete
-                        }
+                        permissions = permissions
                     }
                 });
             }
@@ -301,6 +363,74 @@ namespace TPAHRSystem.API.Controllers
                 {
                     success = false,
                     message = "Error creating menu item",
+                    error = ex.Message
+                });
+            }
+        }
+
+        /// <summary>
+        /// Get a specific menu item for editing (SuperAdmin only)
+        /// </summary>
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetMenuItem(int id)
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                if (user.Role != "SuperAdmin")
+                {
+                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
+                }
+
+                var menuItem = await _context.MenuItems
+                    .Include(m => m.Parent)
+                    .Include(m => m.Children)
+                    .Include(m => m.RolePermissions)
+                    .FirstOrDefaultAsync(m => m.Id == id);
+
+                if (menuItem == null)
+                {
+                    return NotFound(new { success = false, message = "Menu item not found" });
+                }
+
+                return Ok(new
+                {
+                    success = true,
+                    menuItem = new
+                    {
+                        id = menuItem.Id,
+                        name = menuItem.Name,
+                        route = menuItem.Route,
+                        icon = menuItem.Icon,
+                        parentId = menuItem.ParentId,
+                        parentName = menuItem.Parent?.Name,
+                        sortOrder = menuItem.SortOrder,
+                        isActive = menuItem.IsActive,
+                        requiredPermission = menuItem.RequiredPermission,
+                        createdAt = menuItem.CreatedAt,
+                        childrenCount = menuItem.Children.Count,
+                        rolePermissions = menuItem.RolePermissions.Select(rp => new
+                        {
+                            role = rp.Role,
+                            canView = rp.CanView,
+                            canEdit = rp.CanEdit,
+                            canDelete = rp.CanDelete
+                        }).ToList()
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error getting menu item {id}");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error retrieving menu item",
                     error = ex.Message
                 });
             }
@@ -547,74 +677,6 @@ namespace TPAHRSystem.API.Controllers
             }
         }
 
-        /// <summary>
-        /// Get a specific menu item for editing (SuperAdmin only)
-        /// </summary>
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetMenuItem(int id)
-        {
-            try
-            {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
-
-                if (user.Role != "SuperAdmin")
-                {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
-
-                var menuItem = await _context.MenuItems
-                    .Include(m => m.Parent)
-                    .Include(m => m.Children)
-                    .Include(m => m.RolePermissions)
-                    .FirstOrDefaultAsync(m => m.Id == id);
-
-                if (menuItem == null)
-                {
-                    return NotFound(new { success = false, message = "Menu item not found" });
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    data = new
-                    {
-                        id = menuItem.Id,
-                        name = menuItem.Name,
-                        route = menuItem.Route,
-                        icon = menuItem.Icon,
-                        parentId = menuItem.ParentId,
-                        parentName = menuItem.Parent?.Name,
-                        sortOrder = menuItem.SortOrder,
-                        isActive = menuItem.IsActive,
-                        requiredPermission = menuItem.RequiredPermission,
-                        createdAt = menuItem.CreatedAt,
-                        childrenCount = menuItem.Children.Count,
-                        rolePermissions = menuItem.RolePermissions.Select(rp => new
-                        {
-                            role = rp.Role,
-                            canView = rp.CanView,
-                            canEdit = rp.CanEdit,
-                            canDelete = rp.CanDelete
-                        }).ToList()
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error getting menu item {id}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error retrieving menu item",
-                    error = ex.Message
-                });
-            }
-        }
-
         // =============================================================================
         // ADMIN ENDPOINTS
         // =============================================================================
@@ -647,7 +709,7 @@ namespace TPAHRSystem.API.Controllers
                     .ThenBy(m => m.Name)
                     .ToListAsync();
 
-                var hierarchicalMenus = BuildCompleteMenuHierarchy(allMenus);
+                var hierarchicalMenus = BuildAdminMenuTree(allMenus);
 
                 return Ok(new
                 {
@@ -776,57 +838,72 @@ namespace TPAHRSystem.API.Controllers
         // HELPER METHODS
         // =============================================================================
 
-        private List<object> BuildMenuHierarchy(List<UserMenuItemResult> menuItems)
+        private bool HasMenuAccess(MenuItem menu, string userRole)
         {
-            var parentMenus = menuItems
+            // If no role permissions defined, assume accessible to all
+            if (!menu.RolePermissions.Any())
+            {
+                return true;
+            }
+
+            // Check if user's role has view permission
+            var rolePermission = menu.RolePermissions
+                .FirstOrDefault(rp => rp.Role == userRole);
+
+            return rolePermission?.CanView == true;
+        }
+
+        private List<object> BuildUserMenuTree(List<MenuItem> allMenus)
+        {
+            return allMenus
                 .Where(m => m.ParentId == null)
                 .OrderBy(m => m.SortOrder)
-                .Select(m => new
+                .ThenBy(m => m.Name)
+                .Select(menu => new
                 {
-                    id = m.Id,
-                    name = m.Name,
-                    route = m.Route,
-                    icon = m.Icon,
+                    id = menu.Id,
+                    name = menu.Name,
+                    route = menu.Route,
+                    icon = menu.Icon,
                     permissions = new
                     {
-                        canView = m.CanView,
-                        canEdit = m.CanEdit,
-                        canDelete = m.CanDelete
+                        canView = true, // Since we already filtered by access
+                        canEdit = false,
+                        canDelete = false
                     },
-                    children = BuildChildMenus(menuItems, m.Id)
+                    children = BuildUserMenuChildren(allMenus, menu.Id)
                 })
                 .Cast<object>()
                 .ToList();
-
-            return parentMenus;
         }
 
-        private List<object> BuildChildMenus(List<UserMenuItemResult> allMenus, int parentId)
+        private List<object> BuildUserMenuChildren(List<MenuItem> allMenus, int parentId)
         {
             return allMenus
                 .Where(m => m.ParentId == parentId)
                 .OrderBy(m => m.SortOrder)
-                .Select(m => new
+                .ThenBy(m => m.Name)
+                .Select(menu => new
                 {
-                    id = m.Id,
-                    name = m.Name,
-                    route = m.Route,
-                    icon = m.Icon,
+                    id = menu.Id,
+                    name = menu.Name,
+                    route = menu.Route,
+                    icon = menu.Icon,
                     permissions = new
                     {
-                        canView = m.CanView,
-                        canEdit = m.CanEdit,
-                        canDelete = m.CanDelete
+                        canView = true,
+                        canEdit = false,
+                        canDelete = false
                     },
-                    children = BuildChildMenus(allMenus, m.Id)
+                    children = BuildUserMenuChildren(allMenus, menu.Id)
                 })
                 .Cast<object>()
                 .ToList();
         }
 
-        private List<object> BuildCompleteMenuHierarchy(List<MenuItem> allMenus)
+        private List<object> BuildAdminMenuTree(List<MenuItem> allMenus)
         {
-            var parentMenus = allMenus
+            return allMenus
                 .Where(m => m.ParentId == null)
                 .OrderBy(m => m.SortOrder)
                 .Select(m => new
@@ -844,15 +921,13 @@ namespace TPAHRSystem.API.Controllers
                         canEdit = rp.CanEdit,
                         canDelete = rp.CanDelete
                     }).ToList(),
-                    children = BuildCompleteChildMenus(allMenus, m.Id)
+                    children = BuildAdminMenuChildren(allMenus, m.Id)
                 })
                 .Cast<object>()
                 .ToList();
-
-            return parentMenus;
         }
 
-        private List<object> BuildCompleteChildMenus(List<MenuItem> allMenus, int parentId)
+        private List<object> BuildAdminMenuChildren(List<MenuItem> allMenus, int parentId)
         {
             return allMenus
                 .Where(m => m.ParentId == parentId)
@@ -872,7 +947,7 @@ namespace TPAHRSystem.API.Controllers
                         canEdit = rp.CanEdit,
                         canDelete = rp.CanDelete
                     }).ToList(),
-                    children = BuildCompleteChildMenus(allMenus, m.Id)
+                    children = BuildAdminMenuChildren(allMenus, m.Id)
                 })
                 .Cast<object>()
                 .ToList();
