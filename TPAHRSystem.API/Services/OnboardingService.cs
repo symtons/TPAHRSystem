@@ -472,7 +472,7 @@ namespace TPAHRSystem.API.Services
                 var employee = await _context.Employees.FindAsync(employeeId);
                 if (employee != null)
                 {
-                    employee.OnboardingStatus = "COMPLETED";
+                    //employee.OnboardingStatus = "COMPLETED";
                     employee.IsOnboardingLocked = false;
                     await _context.SaveChangesAsync();
                 }

@@ -23,6 +23,8 @@ builder.Services.AddScoped<TPAHRSystem.Application.Services.IAuthService, TPAHRS
 builder.Services.AddScoped<TPAHRSystem.API.Services.IDashboardService, TPAHRSystem.API.Services.DashboardService>();
 builder.Services.AddScoped<ITimeAttendanceService, MockTimeAttendanceService>();
 
+//builder.Services.AddScoped<IStoredProcedureService, StoredProcedureService>();
+
 // Add Onboarding Service
 builder.Services.AddScoped<TPAHRSystem.API.Services.IOnboardingService, TPAHRSystem.API.Services.OnboardingService>();
 
