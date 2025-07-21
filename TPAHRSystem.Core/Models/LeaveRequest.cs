@@ -14,6 +14,8 @@
         public int? ReviewedBy { get; set; }
         public DateTime? ReviewedAt { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        
 
         // Navigation Properties
         public virtual Employee Employee { get; set; } = null!;

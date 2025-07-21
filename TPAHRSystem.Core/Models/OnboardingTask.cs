@@ -37,6 +37,8 @@ namespace TPAHRSystem.Core.Models
         [MaxLength(100)]
         public string EstimatedTime { get; set; } = string.Empty;
 
+        public string AssignedToRole {  get; set; } = string.Empty;
+
         [MaxLength(2000)]
         public string Instructions { get; set; } = string.Empty;
 
