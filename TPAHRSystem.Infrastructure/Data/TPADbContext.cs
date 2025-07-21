@@ -6,6 +6,7 @@
 using Microsoft.EntityFrameworkCore;
 using TPAHRSystem.Core.Models;
 
+
 namespace TPAHRSystem.Infrastructure.Data
 {
     public class TPADbContext : DbContext
@@ -31,7 +32,14 @@ namespace TPAHRSystem.Infrastructure.Data
 
         // Onboarding DbSets - NO CONFIGURATION
         public DbSet<OnboardingTask> OnboardingTasks { get; set; } = null!;
-        public DbSet<OnboardingTemplate> OnboardingTemplates { get; set; } = null!;
+
+
+
+
+
+        public DbSet<OnboardingTaskTemplate> OnboardingTaskTemplates { get; set; } = null!;
+        
+
         public DbSet<OnboardingDocument> OnboardingDocuments { get; set; } = null!;
         public DbSet<OnboardingProgress> OnboardingProgress { get; set; } = null!;
         public DbSet<OnboardingChecklist> OnboardingChecklists { get; set; } = null!;

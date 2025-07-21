@@ -1,6 +1,6 @@
-// =============================================================================
-// SESSION-BASED PROGRAM.CS - NO JWT AUTHENTICATION
-// File: TPAHRSystem.API/Program.cs (REPLACE ENTIRE FILE)
+﻿// =============================================================================
+// UPDATED PROGRAM.CS - WITH ONBOARDING SERVICE REGISTRATION
+// File: TPAHRSystem.API/Program.cs (Replace existing)
 // =============================================================================
 
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +22,17 @@ builder.Services.AddDbContext<TPADbContext>(options =>
 builder.Services.AddScoped<TPAHRSystem.Application.Services.IAuthService, TPAHRSystem.Application.Services.AuthService>();
 builder.Services.AddScoped<TPAHRSystem.API.Services.IDashboardService, TPAHRSystem.API.Services.DashboardService>();
 builder.Services.AddScoped<ITimeAttendanceService, MockTimeAttendanceService>();
+
+// Add Onboarding Service
+builder.Services.AddScoped<TPAHRSystem.API.Services.IOnboardingService, TPAHRSystem.API.Services.OnboardingService>();
+
+// Add Logging
+builder.Services.AddLogging(config =>
+{
+    config.AddConsole();
+    config.AddDebug();
+    config.SetMinimumLevel(LogLevel.Information);
+});
 
 // Configure CORS
 builder.Services.AddCors(options =>
@@ -48,7 +59,7 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "TPA HR Management System API",
         Version = "v1",
-        Description = "API for Tennessee Personal Assistance HR Management System with Session-Based Authentication"
+        Description = "API for Tennessee Personal Assistance HR Management System with Session-Based Authentication and Onboarding Workflow"
     });
 
     // Add Session Token Authentication to Swagger
@@ -78,6 +89,9 @@ builder.Services.AddSwaggerGen(c =>
             new List<string>()
         }
     });
+
+    // Enable XML comments if available
+    c.EnableAnnotations();
 });
 
 var app = builder.Build();
@@ -89,86 +103,71 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "TPA HR System API v1");
-        c.RoutePrefix = string.Empty; // Set Swagger UI at the app's root
+        c.RoutePrefix = string.Empty; // Serve Swagger at root
     });
 }
 
-// CORS must come before other middleware
+// Enable CORS
 app.UseCors("AllowReactApp");
 
-// Simple request logging
+// Enable HTTPS redirection
+app.UseHttpsRedirection();
+
+// Add custom middleware for logging requests
 app.Use(async (context, next) =>
 {
-    Console.WriteLine($"?? Request: {context.Request.Method} {context.Request.Path}");
-
-    // Log authorization header for debugging
-    var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-    if (!string.IsNullOrEmpty(authHeader))
-    {
-        var token = authHeader.StartsWith("Bearer ") ? authHeader.Substring("Bearer ".Length) : authHeader;
-        Console.WriteLine($"?? Auth Token: {token.Substring(0, Math.Min(20, token.Length))}...");
-    }
-    else
-    {
-        Console.WriteLine("?? No auth header");
-    }
+    var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation($"Request: {context.Request.Method} {context.Request.Path}");
 
     await next();
 
-    Console.WriteLine($"?? Response: {context.Response.StatusCode}");
+    logger.LogInformation($"Response: {context.Response.StatusCode}");
 });
 
-// Health Check Endpoint
+// Map controllers
+app.MapControllers();
+
+// Add health check endpoint
 app.MapGet("/health", () => new
 {
     status = "healthy",
-    timestamp = DateTime.UtcNow.ToString("o"),
-    api = "TPA HR Management System",
-    version = "1.0.0",
-    authType = "Session-based"
+    timestamp = DateTime.UtcNow,
+    service = "TPA HR System API",
+    version = "1.0.0"
 });
 
-// Map Controllers
-app.MapControllers();
-
-// Simple database check (Development only)
-if (app.Environment.IsDevelopment())
+// Add API info endpoint
+app.MapGet("/api/info", () => new
 {
-    using (var scope = app.Services.CreateScope())
+    name = "TPA HR Management System API",
+    version = "1.0.0",
+    description = "Complete HR Management System with Employee Onboarding Workflow",
+    features = new[]
     {
-        var context = scope.ServiceProvider.GetRequiredService<TPADbContext>();
+        "Session-based Authentication",
+        "Employee Onboarding Workflow",
+        "Role-based Menu Access Control",
+        "HR Task Management",
+        "Dashboard Analytics",
+        "Time & Attendance (Coming Soon)"
+    },
+    endpoints = new
+    {
+        authentication = "/api/auth",
+        onboarding = "/api/onboarding",
+        menus = "/api/menu",
+        dashboard = "/api/dashboard"
+    },
+    documentation = "/swagger"
+});
 
-        try
-        {
-            if (await context.Database.CanConnectAsync())
-            {
-                Console.WriteLine("? Database connection successful");
-
-                var userCount = await context.Users.CountAsync();
-                var menuCount = await context.MenuItems.CountAsync();
-                var permissionCount = await context.RoleMenuPermissions.CountAsync();
-                var activeSessionCount = await context.UserSessions.CountAsync(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow);
-
-                Console.WriteLine($"?? Database Status:");
-                Console.WriteLine($"   Users: {userCount}");
-                Console.WriteLine($"   Menu Items: {menuCount}");
-                Console.WriteLine($"   Role Permissions: {permissionCount}");
-                Console.WriteLine($"   Active Sessions: {activeSessionCount}");
-            }
-            else
-            {
-                Console.WriteLine("? Database connection failed");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"?? Error during database initialization: {ex.Message}");
-        }
-    }
-}
-
-Console.WriteLine("?? TPA HR Management System API started successfully");
-Console.WriteLine("?? Authentication: Session-based tokens");
-Console.WriteLine("?? Menu System: Role-based permissions");
+Console.WriteLine("🚀 TPA HR Management System API is starting...");
+Console.WriteLine("📋 Features enabled:");
+Console.WriteLine("   ✅ Employee Onboarding Workflow");
+Console.WriteLine("   ✅ Session-based Authentication");
+Console.WriteLine("   ✅ Role-based Access Control");
+Console.WriteLine("   ✅ HR Task Management");
+Console.WriteLine("   ✅ Dashboard Analytics");
+Console.WriteLine("📖 API Documentation available at: /swagger");
 
 app.Run();

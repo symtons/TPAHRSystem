@@ -5,6 +5,96 @@ namespace TPAHRSystem.Core.Models
 {
     public class Employee
     {
+        // =============================================================================
+        // EXISTING ONBOARDING PROPERTIES (MOVED TO TOP)
+        // =============================================================================
+
+        [StringLength(20)]
+        public string? OnboardingStatus { get; set; } = "PENDING";
+
+        public bool? IsOnboardingLocked { get; set; } = true;
+
+        // =============================================================================
+        // ADDITIONAL ONBOARDING PROPERTIES
+        // =============================================================================
+
+        /// <summary>
+        /// Date when onboarding process started
+        /// </summary>
+        public DateTime? OnboardingStartDate { get; set; }
+
+        /// <summary>
+        /// Expected onboarding completion date
+        /// </summary>
+        public DateTime? OnboardingExpectedDate { get; set; }
+
+        /// <summary>
+        /// Actual onboarding completion date
+        /// </summary>
+        public DateTime? OnboardingCompletionDate { get; set; }
+
+        /// <summary>
+        /// Current onboarding phase - Getting Started, Documentation, Training, Final Steps
+        /// </summary>
+        [StringLength(50)]
+        public string? OnboardingPhase { get; set; }
+
+        /// <summary>
+        /// Onboarding completion percentage (0-100)
+        /// </summary>
+        [Column(TypeName = "decimal(5,2)")]
+        public decimal? OnboardingCompletionPercentage { get; set; } = 0;
+
+        /// <summary>
+        /// Number of completed onboarding tasks
+        /// </summary>
+        public int? OnboardingTasksCompleted { get; set; } = 0;
+
+        /// <summary>
+        /// Total number of onboarding tasks assigned
+        /// </summary>
+        public int? OnboardingTasksTotal { get; set; } = 0;
+
+        /// <summary>
+        /// Whether onboarding is on track for completion
+        /// </summary>
+        public bool? IsOnboardingOnTrack { get; set; } = true;
+
+        /// <summary>
+        /// Notes about onboarding progress
+        /// </summary>
+        [StringLength(1000)]
+        public string? OnboardingNotes { get; set; }
+
+        /// <summary>
+        /// HR employee who approved final onboarding completion
+        /// </summary>
+        public int? OnboardingApprovedById { get; set; }
+
+        /// <summary>
+        /// Date of final onboarding approval
+        /// </summary>
+        public DateTime? OnboardingApprovedDate { get; set; }
+
+        /// <summary>
+        /// Employee's assigned onboarding mentor/buddy
+        /// </summary>
+        public int? OnboardingMentorId { get; set; }
+
+        /// <summary>
+        /// Last date onboarding reminder was sent
+        /// </summary>
+        public DateTime? LastOnboardingReminderDate { get; set; }
+
+        /// <summary>
+        /// Number of onboarding reminders sent
+        /// </summary>
+        public int? OnboardingReminderCount { get; set; } = 0;
+
+        // =============================================================================
+        // EXISTING PROPERTIES (UNCHANGED)
+        // =============================================================================
+
         public int Id { get; set; }
 
         [Required]
@@ -74,11 +164,46 @@ namespace TPAHRSystem.Core.Models
         public int? DepartmentId { get; set; }
         public int? ManagerId { get; set; }
 
-        // Navigation Properties
+        // =============================================================================
+        // EXISTING NAVIGATION PROPERTIES (UNCHANGED)
+        // =============================================================================
+
         public User? User { get; set; }
         public Department? Department { get; set; }
         public Employee? Manager { get; set; }
         public ICollection<Employee> DirectReports { get; set; } = new List<Employee>();
+
+        // =============================================================================
+        // ADDITIONAL ONBOARDING NAVIGATION PROPERTIES
+        // =============================================================================
+
+        /// <summary>
+        /// HR employee who approved onboarding completion
+        /// </summary>
+        [ForeignKey("OnboardingApprovedById")]
+        public virtual Employee? OnboardingApprovedBy { get; set; }
+
+        /// <summary>
+        /// Employee's onboarding mentor
+        /// </summary>
+        [ForeignKey("OnboardingMentorId")]
+        public virtual Employee? OnboardingMentor { get; set; }
+
+        /// <summary>
+        /// Employees this person is mentoring
+        /// </summary>
+        [InverseProperty("OnboardingMentor")]
+        public virtual ICollection<Employee> OnboardingMentees { get; set; } = new List<Employee>();
+
+        /// <summary>
+        /// Employees this person approved onboarding for
+        /// </summary>
+        [InverseProperty("OnboardingApprovedBy")]
+        public virtual ICollection<Employee> OnboardingApprovals { get; set; } = new List<Employee>();
+
+        // =============================================================================
+        // EXISTING TEMPORARY NAVIGATION PROPERTIES (UNCHANGED)
+        // =============================================================================
 
         // TEMPORARY: Ignore these navigation properties to fix EF error
         [NotMapped]
@@ -102,11 +227,12 @@ namespace TPAHRSystem.Core.Models
         [NotMapped]
         public ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
 
-       
-
         public ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
 
-        // Computed Properties
+        // =============================================================================
+        // EXISTING COMPUTED PROPERTIES (UNCHANGED)
+        // =============================================================================
+
         [NotMapped]
         public string FullName => $"{FirstName} {LastName}";
 
@@ -123,6 +249,116 @@ namespace TPAHRSystem.Core.Models
                     return (int)((TerminationDate.Value - HireDate).TotalDays / 365);
                 }
                 return (int)((DateTime.UtcNow - HireDate).TotalDays / 365);
+            }
+        }
+
+        // =============================================================================
+        // NEW ONBOARDING COMPUTED PROPERTIES
+        // =============================================================================
+
+        /// <summary>
+        /// Whether employee is currently in onboarding process
+        /// </summary>
+        [NotMapped]
+        public bool IsInOnboarding => OnboardingStatus != "COMPLETED" && OnboardingStatus != "CANCELLED";
+
+        /// <summary>
+        /// Whether employee has completed onboarding
+        /// </summary>
+        [NotMapped]
+        public bool HasCompletedOnboarding => OnboardingStatus == "COMPLETED";
+
+        /// <summary>
+        /// Number of days since hire
+        /// </summary>
+        [NotMapped]
+        public int DaysSinceHire => (int)(DateTime.UtcNow - HireDate).TotalDays;
+
+        /// <summary>
+        /// Number of days in onboarding process
+        /// </summary>
+        [NotMapped]
+        public int DaysInOnboarding => OnboardingStartDate.HasValue ?
+            (int)(DateTime.UtcNow - OnboardingStartDate.Value).TotalDays : DaysSinceHire;
+
+        /// <summary>
+        /// Whether onboarding is overdue
+        /// </summary>
+        [NotMapped]
+        public bool IsOnboardingOverdue => OnboardingExpectedDate.HasValue &&
+            OnboardingExpectedDate.Value < DateTime.UtcNow &&
+            !HasCompletedOnboarding;
+
+        /// <summary>
+        /// Number of pending onboarding tasks
+        /// </summary>
+        [NotMapped]
+        public int OnboardingTasksPending => (OnboardingTasksTotal ?? 0) - (OnboardingTasksCompleted ?? 0);
+
+        /// <summary>
+        /// Onboarding progress display string
+        /// </summary>
+        [NotMapped]
+        public string OnboardingProgressDisplay =>
+            $"{OnboardingTasksCompleted ?? 0}/{OnboardingTasksTotal ?? 0} ({OnboardingCompletionPercentage ?? 0:F1}%)";
+
+        /// <summary>
+        /// Onboarding status display with emoji
+        /// </summary>
+        [NotMapped]
+        public string OnboardingStatusDisplay => OnboardingStatus?.ToUpper() switch
+        {
+            "PENDING" => "🔄 Pending",
+            "IN_PROGRESS" => "⏳ In Progress",
+            "COMPLETED" => "✅ Completed",
+            "CANCELLED" => "❌ Cancelled",
+            _ => OnboardingStatus ?? "Unknown"
+        };
+
+        /// <summary>
+        /// Current access level based on onboarding status
+        /// </summary>
+        [NotMapped]
+        public string AccessLevel => (IsOnboardingLocked ?? true) ? "RESTRICTED" : "FULL";
+
+        /// <summary>
+        /// Whether employee can access full system
+        /// </summary>
+        [NotMapped]
+        public bool CanAccessFullSystem => !(IsOnboardingLocked ?? true) && HasCompletedOnboarding;
+
+        /// <summary>
+        /// Days until expected onboarding completion
+        /// </summary>
+        [NotMapped]
+        public int DaysUntilOnboardingDue => OnboardingExpectedDate.HasValue ?
+            (int)(OnboardingExpectedDate.Value - DateTime.UtcNow).TotalDays : 0;
+
+        /// <summary>
+        /// Onboarding time summary
+        /// </summary>
+        [NotMapped]
+        public string OnboardingTimeSummary
+        {
+            get
+            {
+                if (HasCompletedOnboarding && OnboardingCompletionDate.HasValue)
+                {
+                    var daysToComplete = (int)(OnboardingCompletionDate.Value - HireDate).TotalDays;
+                    return $"Completed in {daysToComplete} days";
+                }
+                else if (IsOnboardingOverdue)
+                {
+                    return $"Overdue by {Math.Abs(DaysUntilOnboardingDue)} days";
+                }
+                else if (DaysUntilOnboardingDue > 0)
+                {
+                    return $"{DaysUntilOnboardingDue} days remaining";
+                }
+                else
+                {
+                    return $"{DaysInOnboarding} days in progress";
+                }
             }
         }
     }

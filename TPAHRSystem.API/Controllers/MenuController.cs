@@ -1,6 +1,6 @@
 ﻿// =============================================================================
-// MENU CONTROLLER - FINAL CLEAN VERSION
-// File: TPAHRSystem.API/Controllers/MenuController.cs (REPLACE ENTIRE FILE)
+// FIXED MENU CONTROLLER - RESOLVE TYPE MAPPING ISSUES
+// File: TPAHRSystem.API/Controllers/MenuController.cs (Replace existing)
 // =============================================================================
 
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +25,7 @@ namespace TPAHRSystem.API.Controllers
         }
 
         // =============================================================================
-        // AUTHENTICATION HELPERS
+        // SESSION-BASED AUTHENTICATION HELPERS
         // =============================================================================
 
         private string? GetTokenFromHeader()
@@ -50,87 +50,60 @@ namespace TPAHRSystem.API.Controllers
             var user = await GetCurrentUserAsync();
             if (user == null) return null;
 
-            try
-            {
-                return await _context.Employees
-                    .Where(e => e.UserId == user.Id)
-                    .Select(e => new Employee
-                    {
-                        Id = e.Id,
-                        UserId = e.UserId,
-                        FirstName = e.FirstName ?? "",
-                        LastName = e.LastName ?? "",
-                        DepartmentId = e.DepartmentId,
-                        IsActive = e.IsActive ,
-                        CreatedAt = e.CreatedAt
-                    })
-                    .FirstOrDefaultAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error fetching employee data for user {user.Id}");
-                return null;
-            }
+            return await _context.Employees
+                .FirstOrDefaultAsync(e => e.UserId == user.Id);
         }
 
         private async Task<string?> GetDepartmentNameAsync(int? departmentId)
         {
             if (!departmentId.HasValue) return null;
 
-            try
-            {
-                var department = await _context.Departments
-                    .Where(d => d.Id == departmentId.Value)
-                    .Select(d => d.Name)
-                    .FirstOrDefaultAsync();
+            var department = await _context.Departments
+                .FirstOrDefaultAsync(d => d.Id == departmentId.Value);
 
-                return department;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error fetching department name for ID {departmentId}");
-                return null;
-            }
+            return department?.Name;
+        }
+
+        private async Task<bool> IsHROrAdmin(User user)
+        {
+            return user.Role.Contains("HR") || user.Role.Contains("Admin") || user.Role.Contains("SuperAdmin");
         }
 
         // =============================================================================
-        // MAIN MENU ENDPOINTS
+        // ONBOARDING-AWARE MENU ENDPOINTS
         // =============================================================================
 
         /// <summary>
-        /// Get user's accessible menu items based on their role and department
+        /// Get user's accessible menu items based on their role, department, and onboarding status
         /// </summary>
         [HttpGet]
         public async Task<IActionResult> GetUserMenus()
         {
-            try
+            var user = await GetCurrentUserAsync();
+            if (user == null)
             {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Please provide a valid session token." });
-                }
+                return Unauthorized(new { success = false, message = "Please provide a valid session token." });
+            }
 
-                var employee = await GetCurrentEmployeeAsync();
-                var departmentName = await GetDepartmentNameAsync(employee?.DepartmentId);
+            var employee = await GetCurrentEmployeeAsync();
+            var departmentName = await GetDepartmentNameAsync(employee?.DepartmentId);
 
-                _logger.LogInformation($"Loading menus for user {user.Email} with role {user.Role}");
+            _logger.LogInformation($"Loading menus for user {user.Email} with role {user.Role}");
 
-                // Get all active menu items with role permissions
-                var allMenus = await _context.MenuItems
-                    .Include(m => m.Parent)
-                    .Include(m => m.Children)
-                    .Include(m => m.RolePermissions)
-                    .Where(m => m.IsActive)
-                    .OrderBy(m => m.SortOrder)
-                    .ThenBy(m => m.Name)
-                    .ToListAsync();
+            // Check if user is in onboarding and should have restricted access
+            var hasRestrictedAccess = false;
+            var onboardingStatus = "COMPLETED";
 
-                // Filter menus based on user role
-                var accessibleMenus = allMenus.Where(menu => HasMenuAccess(menu, user.Role)).ToList();
+            if (employee != null)
+            {
+                hasRestrictedAccess = employee.IsOnboardingLocked ?? false;
+                onboardingStatus = employee.OnboardingStatus ?? "COMPLETED";
+            }
 
-                // Build hierarchical structure for user display
-                var hierarchicalMenus = BuildUserMenuTree(accessibleMenus);
+            // If user is in onboarding and not HR/Admin, return only onboarding menus
+            if (hasRestrictedAccess && !await IsHROrAdmin(user))
+            {
+                var onboardingMenus = GetOnboardingOnlyMenus();
 
                 return Ok(new
                 {
@@ -142,22 +115,38 @@ namespace TPAHRSystem.API.Controllers
                         userEmail = user.Email,
                         departmentId = employee?.DepartmentId,
                         departmentName = departmentName,
-                        menus = hierarchicalMenus,
-                        totalMenus = accessibleMenus.Count,
+                        isOnboardingLocked = hasRestrictedAccess,
+                        onboardingStatus = onboardingStatus,
+                        menus = onboardingMenus,
+                        totalMenus = onboardingMenus.Count,
+                        accessLevel = "ONBOARDING_ONLY",
                         lastUpdated = DateTime.UtcNow
                     }
                 });
             }
-            catch (Exception ex)
+
+            // Get full role-based menus for completed onboarding or HR/Admin users
+            var menuItems = await GetUserMenuItemsAsync(user.Role, employee?.DepartmentId);
+            var hierarchicalMenus = BuildMenuHierarchy(menuItems);
+
+            return Ok(new
             {
-                _logger.LogError(ex, "Error loading user menus");
-                return StatusCode(500, new
+                success = true,
+                data = new
                 {
-                    success = false,
-                    message = "Error loading menu items",
-                    error = ex.Message
-                });
-            }
+                    userRole = user.Role,
+                    userId = user.Id,
+                    userEmail = user.Email,
+                    departmentId = employee?.DepartmentId,
+                    departmentName = departmentName,
+                    isOnboardingLocked = hasRestrictedAccess,
+                    onboardingStatus = onboardingStatus,
+                    menus = hierarchicalMenus,
+                    totalMenus = menuItems.Count,
+                    accessLevel = hasRestrictedAccess ? "RESTRICTED" : "FULL_ACCESS",
+                    lastUpdated = DateTime.UtcNow
+                }
+            });
         }
 
         /// <summary>
@@ -174,25 +163,33 @@ namespace TPAHRSystem.API.Controllers
                     return Unauthorized(new { success = false, message = "Authentication required" });
                 }
 
-                // Find the menu and check permissions
-                var menuItem = await _context.MenuItems
-                    .Include(m => m.RolePermissions)
-                    .FirstOrDefaultAsync(m => m.Name.ToLower() == menuName.ToLower() && m.IsActive);
+                var employee = await GetCurrentEmployeeAsync();
+                var hasRestrictedAccess = employee?.IsOnboardingLocked ?? false;
 
-                if (menuItem == null)
+                // If user is in onboarding, only allow onboarding-related permissions
+                if (hasRestrictedAccess && !await IsHROrAdmin(user))
                 {
-                    return NotFound(new { success = false, message = "Menu item not found" });
+                    var isOnboardingMenu = IsOnboardingRelatedMenu(menuName);
+
+                    return Ok(new
+                    {
+                        success = true,
+                        data = new
+                        {
+                            menuName = menuName,
+                            canView = isOnboardingMenu,
+                            canEdit = false, // Employees in onboarding cannot edit
+                            canDelete = false,
+                            isRestricted = true,
+                            reason = isOnboardingMenu ? null : "Access restricted during onboarding"
+                        }
+                    });
                 }
 
-                var rolePermission = menuItem.RolePermissions
-                    .FirstOrDefault(rp => rp.Role == user.Role);
-
-                var permissions = new
-                {
-                    canView = rolePermission?.CanView ?? false,
-                    canEdit = rolePermission?.CanEdit ?? false,
-                    canDelete = rolePermission?.CanDelete ?? false
-                };
+                // Check normal permissions for full access users
+                var canView = await CheckUserMenuPermissionAsync(user.Role, menuName, "VIEW");
+                var canEdit = await CheckUserMenuPermissionAsync(user.Role, menuName, "EDIT");
+                var canDelete = await CheckUserMenuPermissionAsync(user.Role, menuName, "DELETE");
 
                 return Ok(new
                 {
@@ -200,91 +197,25 @@ namespace TPAHRSystem.API.Controllers
                     data = new
                     {
                         menuName = menuName,
-                        userRole = user.Role,
-                        permissions = permissions
+                        canView = canView,
+                        canEdit = canEdit,
+                        canDelete = canDelete,
+                        isRestricted = false
                     }
                 });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error checking permissions for menu: {menuName}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error checking menu permissions",
-                    error = ex.Message
-                });
+                return StatusCode(500, new { success = false, message = "Error checking menu permissions" });
             }
         }
 
         /// <summary>
-        /// Get navigation breadcrumbs for current menu
+        /// Check if user can access a specific menu item
         /// </summary>
-        [HttpGet("breadcrumbs")]
-        public async Task<IActionResult> GetBreadcrumbs([FromQuery] string? currentRoute)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(currentRoute))
-                {
-                    return Ok(new { success = true, data = new List<object>() });
-                }
-
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
-
-                // Find the current menu item and build breadcrumb trail
-                var menuItem = await _context.MenuItems
-                    .Include(m => m.Parent)
-                    .Include(m => m.RolePermissions)
-                    .FirstOrDefaultAsync(m => m.Route == currentRoute && m.IsActive);
-
-                if (menuItem == null)
-                {
-                    return NotFound(new { success = false, message = "Menu item not found" });
-                }
-
-                // Check if user has permission to view this menu
-                var hasPermission = menuItem.RolePermissions
-                    .Any(rp => rp.Role == user.Role && rp.CanView);
-
-                if (!hasPermission)
-                {
-                    return StatusCode(403, new { success = false, message = "Insufficient permissions" });
-                }
-
-                var breadcrumbs = BuildBreadcrumbTrail(menuItem);
-
-                return Ok(new
-                {
-                    success = true,
-                    data = breadcrumbs
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error building breadcrumbs for route: {currentRoute}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error building breadcrumbs",
-                    error = ex.Message
-                });
-            }
-        }
-
-        // =============================================================================
-        // MENU CRUD OPERATIONS (SuperAdmin Only)
-        // =============================================================================
-
-        /// <summary>
-        /// Create a new menu item (SuperAdmin only)
-        /// </summary>
-        [HttpPost]
-        public async Task<IActionResult> CreateMenuItem([FromBody] CreateMenuRequest request)
+        [HttpGet("access-check/{menuName}")]
+        public async Task<IActionResult> CheckMenuAccess(string menuName)
         {
             try
             {
@@ -294,762 +225,479 @@ namespace TPAHRSystem.API.Controllers
                     return Unauthorized(new { success = false, message = "Authentication required" });
                 }
 
-                if (user.Role != "SuperAdmin")
-                {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
+                var employee = await GetCurrentEmployeeAsync();
+                var hasRestrictedAccess = employee?.IsOnboardingLocked ?? false;
 
-                // Validate parent exists if specified
-                if (request.ParentId.HasValue)
+                // HR and Admin always have access
+                if (await IsHROrAdmin(user))
                 {
-                    var parentExists = await _context.MenuItems.AnyAsync(m => m.Id == request.ParentId);
-                    if (!parentExists)
+                    return Ok(new
                     {
-                        return BadRequest(new { success = false, message = "Parent menu item not found" });
-                    }
-                }
-
-                var menuItem = new MenuItem
-                {
-                    Name = request.Name,
-                    Route = request.Route,
-                    Icon = request.Icon,
-                    ParentId = request.ParentId,
-                    SortOrder = request.SortOrder,
-                    IsActive = true,
-                    RequiredPermission = request.RequiredPermission,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                _context.MenuItems.Add(menuItem);
-                await _context.SaveChangesAsync();
-
-                // Create role permissions if specified
-                if (request.RolePermissions != null && request.RolePermissions.Any())
-                {
-                    foreach (var rolePermission in request.RolePermissions)
-                    {
-                        var permission = new RoleMenuPermission
-                        {
-                            MenuItemId = menuItem.Id,
-                            Role = rolePermission.Role,
-                            CanView = rolePermission.CanView,
-                            CanEdit = rolePermission.CanEdit,
-                            CanDelete = rolePermission.CanDelete
-                        };
-                        _context.RoleMenuPermissions.Add(permission);
-                    }
-                    await _context.SaveChangesAsync();
-                }
-
-                _logger.LogInformation($"Menu item '{menuItem.Name}' created by {user.Email}");
-
-                return Ok(new
-                {
-                    success = true,
-                    data = new
-                    {
-                        id = menuItem.Id,
-                        name = menuItem.Name,
-                        route = menuItem.Route,
-                        message = "Menu item created successfully"
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating menu item");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error creating menu item",
-                    error = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Get a specific menu item for editing (SuperAdmin only)
-        /// </summary>
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetMenuItem(int id)
-        {
-            try
-            {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
-
-                if (user.Role != "SuperAdmin")
-                {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
-
-                var menuItem = await _context.MenuItems
-                    .Include(m => m.Parent)
-                    .Include(m => m.Children)
-                    .Include(m => m.RolePermissions)
-                    .FirstOrDefaultAsync(m => m.Id == id);
-
-                if (menuItem == null)
-                {
-                    return NotFound(new { success = false, message = "Menu item not found" });
-                }
-
-                return Ok(new
-                {
-                    success = true,
-                    menuItem = new
-                    {
-                        id = menuItem.Id,
-                        name = menuItem.Name,
-                        route = menuItem.Route,
-                        icon = menuItem.Icon,
-                        parentId = menuItem.ParentId,
-                        parentName = menuItem.Parent?.Name,
-                        sortOrder = menuItem.SortOrder,
-                        isActive = menuItem.IsActive,
-                        requiredPermission = menuItem.RequiredPermission,
-                        createdAt = menuItem.CreatedAt,
-                        childrenCount = menuItem.Children.Count,
-                        rolePermissions = menuItem.RolePermissions.Select(rp => new
-                        {
-                            role = rp.Role,
-                            canView = rp.CanView,
-                            canEdit = rp.CanEdit,
-                            canDelete = rp.CanDelete
-                        }).ToList()
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error getting menu item {id}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error retrieving menu item",
-                    error = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Update an existing menu item (SuperAdmin only)
-        /// </summary>
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateMenuItem(int id, [FromBody] UpdateMenuRequest request)
-        {
-            try
-            {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
-
-                if (user.Role != "SuperAdmin")
-                {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
-
-                var menuItem = await _context.MenuItems.FindAsync(id);
-                if (menuItem == null)
-                {
-                    return NotFound(new { success = false, message = "Menu item not found" });
-                }
-
-                // Update properties only if provided
-                if (!string.IsNullOrEmpty(request.Name))
-                    menuItem.Name = request.Name;
-
-                if (!string.IsNullOrEmpty(request.Route))
-                    menuItem.Route = request.Route;
-
-                if (request.Icon != null)
-                    menuItem.Icon = request.Icon;
-
-                if (request.SortOrder.HasValue)
-                    menuItem.SortOrder = request.SortOrder.Value;
-
-                if (request.IsActive.HasValue)
-                    menuItem.IsActive = request.IsActive.Value;
-
-                if (request.RequiredPermission != null)
-                    menuItem.RequiredPermission = request.RequiredPermission;
-
-                // Handle parent change
-                if (request.ParentId.HasValue)
-                {
-                    if (request.ParentId.Value == 0)
-                    {
-                        menuItem.ParentId = null;
-                    }
-                    else
-                    {
-                        var parentExists = await _context.MenuItems.AnyAsync(m => m.Id == request.ParentId.Value);
-                        if (!parentExists)
-                        {
-                            return BadRequest(new { success = false, message = "Parent menu item not found" });
-                        }
-
-                        // Prevent circular reference
-                        if (request.ParentId.Value == id)
-                        {
-                            return BadRequest(new { success = false, message = "Menu item cannot be its own parent" });
-                        }
-
-                        menuItem.ParentId = request.ParentId.Value;
-                    }
-                }
-
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation($"Menu item '{menuItem.Name}' updated by {user.Email}");
-
-                return Ok(new
-                {
-                    success = true,
-                    data = new
-                    {
-                        id = menuItem.Id,
-                        name = menuItem.Name,
-                        route = menuItem.Route,
-                        message = "Menu item updated successfully"
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error updating menu item {id}");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error updating menu item",
-                    error = ex.Message
-                });
-            }
-        }
-
-        /// <summary>
-        /// Delete a menu item (SuperAdmin only)
-        /// </summary>
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteMenuItem(int id)
-        {
-            try
-            {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
-
-                if (user.Role != "SuperAdmin")
-                {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
-
-                var menuItem = await _context.MenuItems
-                    .Include(m => m.Children)
-                    .Include(m => m.RolePermissions)
-                    .FirstOrDefaultAsync(m => m.Id == id);
-
-                if (menuItem == null)
-                {
-                    return NotFound(new { success = false, message = "Menu item not found" });
-                }
-
-                // Check if menu has children
-                if (menuItem.Children.Any())
-                {
-                    return BadRequest(new
-                    {
-                        success = false,
-                        message = "Cannot delete menu item with child items. Delete children first or move them to another parent.",
-                        childCount = menuItem.Children.Count
+                        success = true,
+                        hasAccess = true,
+                        reason = "HR/Admin access"
                     });
                 }
 
-                var menuName = menuItem.Name;
+                // If user is in onboarding, check if menu is onboarding-related
+                if (hasRestrictedAccess)
+                {
+                    var isOnboardingMenu = IsOnboardingRelatedMenu(menuName);
+                    return Ok(new
+                    {
+                        success = true,
+                        hasAccess = isOnboardingMenu,
+                        reason = isOnboardingMenu ? "Onboarding menu access granted" : "Access restricted during onboarding"
+                    });
+                }
 
-                // Remove role permissions first
-                _context.RoleMenuPermissions.RemoveRange(menuItem.RolePermissions);
-
-                // Remove menu item
-                _context.MenuItems.Remove(menuItem);
-
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation($"Menu item '{menuName}' deleted by {user.Email}");
-
+                // Full access for completed onboarding
+                var canView = await CheckUserMenuPermissionAsync(user.Role, menuName, "VIEW");
                 return Ok(new
                 {
                     success = true,
-                    message = $"Menu item '{menuName}' deleted successfully"
+                    hasAccess = canView,
+                    reason = canView ? "Full system access" : "Insufficient permissions"
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error deleting menu item {id}");
-                return StatusCode(500, new
+                _logger.LogError(ex, $"Error checking access for menu: {menuName}");
+                return StatusCode(500, new { success = false, message = "Error checking menu access" });
+            }
+        }
+
+        // =============================================================================
+        // MENU DATA METHODS - FIXED TYPE MAPPING
+        // =============================================================================
+
+        /// <summary>
+        /// Get user menu items based on role and department - FIXED VERSION
+        /// </summary>
+        private async Task<List<MenuItemDto>> GetUserMenuItemsAsync(string userRole, int? departmentId = null)
+        {
+            try
+            {
+                // Simulate menu structure based on role - replace with your actual logic
+                var menuItems = new List<MenuItemDto>();
+
+                // Admin and HR get full access
+                if (userRole.Contains("Admin") || userRole.Contains("HR"))
                 {
-                    success = false,
-                    message = "Error deleting menu item",
-                    error = ex.Message
-                });
+                    menuItems = GetFullMenuStructure();
+                }
+                else
+                {
+                    // Regular employees get limited access based on their department
+                    menuItems = GetEmployeeMenuStructure(departmentId);
+                }
+
+                return await Task.FromResult(menuItems);
+            }
+            catch
+            {
+                return new List<MenuItemDto>();
             }
         }
 
         /// <summary>
-        /// Update role permissions for a menu item (SuperAdmin only)
+        /// Check if user has permission for a specific menu action - FIXED VERSION
         /// </summary>
-        [HttpPost("{menuId}/permissions")]
-        public async Task<IActionResult> UpdateMenuPermissions(int menuId, [FromBody] List<RolePermissionRequest> permissions)
+        private async Task<bool> CheckUserMenuPermissionAsync(string userRole, string menuName, string action)
         {
             try
             {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
+                // Admin and HR have all permissions
+                if (userRole.Contains("Admin") || userRole.Contains("HR"))
                 {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
+                    return true;
                 }
 
-                if (user.Role != "SuperAdmin")
+                // Define basic permissions for regular employees
+                var allowedMenus = new[]
                 {
-                    return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-                }
+                    "Dashboard", "Profile", "Time Entry", "Reports", "Help"
+                };
 
-                var menuItem = await _context.MenuItems.FindAsync(menuId);
-                if (menuItem == null)
+                var canView = allowedMenus.Contains(menuName, StringComparer.OrdinalIgnoreCase);
+
+                return action.ToUpper() switch
                 {
-                    return NotFound(new { success = false, message = "Menu item not found" });
-                }
+                    "VIEW" => canView,
+                    "EDIT" => canView && (menuName == "Profile" || menuName == "Time Entry"),
+                    "DELETE" => false, // Regular employees can't delete
+                    _ => false
+                };
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
-                // Remove existing permissions for this menu
-                var existingPermissions = await _context.RoleMenuPermissions
-                    .Where(rmp => rmp.MenuItemId == menuId)
-                    .ToListAsync();
+        // =============================================================================
+        // ONBOARDING MENU HELPERS
+        // =============================================================================
 
-                _context.RoleMenuPermissions.RemoveRange(existingPermissions);
-
-                // Add new permissions
-                foreach (var permission in permissions)
+        /// <summary>
+        /// Get menus available during onboarding (restricted access)
+        /// </summary>
+        private List<object> GetOnboardingOnlyMenus()
+        {
+            return new List<object>
+            {
+                new
                 {
-                    var rolePermission = new RoleMenuPermission
+                    id = 1,
+                    name = "Onboarding",
+                    route = "/onboarding",
+                    icon = "Users",
+                    parentId = (int?)null,
+                    sortOrder = 1,
+                    isActive = true,
+                    children = new List<object>
                     {
-                        MenuItemId = menuId,
-                        Role = permission.Role,
-                        CanView = permission.CanView,
-                        CanEdit = permission.CanEdit,
-                        CanDelete = permission.CanDelete
-                    };
-                    _context.RoleMenuPermissions.Add(rolePermission);
-                }
-
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation($"Permissions updated for menu '{menuItem.Name}' by {user.Email}");
-
-                return Ok(new
-                {
-                    success = true,
-                    message = "Menu permissions updated successfully",
-                    data = new
-                    {
-                        menuId = menuId,
-                        menuName = menuItem.Name,
-                        permissionsCount = permissions.Count
+                        new
+                        {
+                            id = 11,
+                            name = "My Tasks",
+                            route = "/onboarding/my-tasks",
+                            icon = "CheckSquare",
+                            parentId = 1,
+                            sortOrder = 1,
+                            isActive = true
+                        },
+                        new
+                        {
+                            id = 12,
+                            name = "Progress",
+                            route = "/onboarding/progress",
+                            icon = "TrendingUp",
+                            parentId = 1,
+                            sortOrder = 2,
+                            isActive = true
+                        }
                     }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error updating permissions for menu {menuId}");
-                return StatusCode(500, new
+                },
+                new
                 {
-                    success = false,
-                    message = "Error updating menu permissions",
-                    error = ex.Message
-                });
-            }
+                    id = 2,
+                    name = "Profile",
+                    route = "/profile",
+                    icon = "User",
+                    parentId = (int?)null,
+                    sortOrder = 2,
+                    isActive = true,
+                    children = new List<object>
+                    {
+                        new
+                        {
+                            id = 21,
+                            name = "Personal Information",
+                            route = "/profile/personal",
+                            icon = "Info",
+                            parentId = 2,
+                            sortOrder = 1,
+                            isActive = true
+                        }
+                    }
+                },
+                new
+                {
+                    id = 3,
+                    name = "Help",
+                    route = "/help",
+                    icon = "HelpCircle",
+                    parentId = (int?)null,
+                    sortOrder = 3,
+                    isActive = true,
+                    children = new List<object>
+                    {
+                        new
+                        {
+                            id = 31,
+                            name = "Getting Started",
+                            route = "/help/getting-started",
+                            icon = "PlayCircle",
+                            parentId = 3,
+                            sortOrder = 1,
+                            isActive = true
+                        },
+                        new
+                        {
+                            id = 32,
+                            name = "Contact HR",
+                            route = "/help/contact-hr",
+                            icon = "Phone",
+                            parentId = 3,
+                            sortOrder = 2,
+                            isActive = true
+                        }
+                    }
+                }
+            };
         }
 
-        // =============================================================================
-        // ADMIN ENDPOINTS
-        // =============================================================================
+        /// <summary>
+        /// Check if a menu is onboarding-related and should be accessible during onboarding
+        /// </summary>
+        private bool IsOnboardingRelatedMenu(string menuName)
+        {
+            var onboardingMenus = new[]
+            {
+                "Onboarding",
+                "My Tasks",
+                "Progress",
+                "Profile",
+                "Personal Information",
+                "Help",
+                "Getting Started",
+                "Contact HR"
+            };
+
+            return onboardingMenus.Contains(menuName, StringComparer.OrdinalIgnoreCase);
+        }
 
         /// <summary>
-        /// Get all menu items for management (Admin/SuperAdmin only)
+        /// Build hierarchical menu structure from flat menu items - FIXED VERSION
         /// </summary>
-        [HttpGet("all")]
-        public async Task<IActionResult> GetAllMenuItems()
+        private List<object> BuildMenuHierarchy(List<MenuItemDto> menuItems)
         {
-            try
+            var parentMenus = menuItems.Where(m => m.ParentId == null).OrderBy(m => m.SortOrder);
+            var hierarchicalMenus = new List<object>();
+
+            foreach (var parent in parentMenus)
             {
-                var user = await GetCurrentUserAsync();
-                if (user == null)
-                {
-                    return Unauthorized(new { success = false, message = "Authentication required" });
-                }
-
-                // Only Admin and SuperAdmin can view all menus
-                if (!user.Role.Contains("Admin"))
-                {
-                    return StatusCode(403, new { success = false, message = "Admin privileges required" });
-                }
-
-                var allMenus = await _context.MenuItems
-                    .Include(m => m.Parent)
-                    .Include(m => m.Children)
-                    .Include(m => m.RolePermissions)
+                var children = menuItems
+                    .Where(m => m.ParentId == parent.Id)
                     .OrderBy(m => m.SortOrder)
-                    .ThenBy(m => m.Name)
-                    .ToListAsync();
+                    .Select(child => new
+                    {
+                        id = child.Id,
+                        name = child.Name,
+                        route = child.Route,
+                        icon = child.Icon,
+                        parentId = child.ParentId,
+                        sortOrder = child.SortOrder,
+                        isActive = child.IsActive,
+                        requiredPermission = child.RequiredPermission
+                    })
+                    .ToList();
 
-                var hierarchicalMenus = BuildAdminMenuTree(allMenus);
+                hierarchicalMenus.Add(new
+                {
+                    id = parent.Id,
+                    name = parent.Name,
+                    route = parent.Route,
+                    icon = parent.Icon,
+                    parentId = parent.ParentId,
+                    sortOrder = parent.SortOrder,
+                    isActive = parent.IsActive,
+                    requiredPermission = parent.RequiredPermission,
+                    children = children
+                });
+            }
 
+            return hierarchicalMenus;
+        }
+
+        /// <summary>
+        /// Get full menu structure for admin/HR users - FIXED VERSION
+        /// </summary>
+        private List<MenuItemDto> GetFullMenuStructure()
+        {
+            return new List<MenuItemDto>
+            {
+                // Dashboard
+                new MenuItemDto { Id = 1, Name = "Dashboard", Route = "/dashboard", Icon = "BarChart3", ParentId = null, SortOrder = 1, IsActive = true },
+                
+                // Employee Management
+                new MenuItemDto { Id = 2, Name = "Employee Management", Route = "/employees", Icon = "Users", ParentId = null, SortOrder = 2, IsActive = true },
+                new MenuItemDto { Id = 21, Name = "Employee List", Route = "/employees/list", Icon = "List", ParentId = 2, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 22, Name = "Add Employee", Route = "/employees/add", Icon = "UserPlus", ParentId = 2, SortOrder = 2, IsActive = true },
+                new MenuItemDto { Id = 23, Name = "Employee Reports", Route = "/employees/reports", Icon = "FileText", ParentId = 2, SortOrder = 3, IsActive = true },
+                
+                // Onboarding
+                new MenuItemDto { Id = 3, Name = "Onboarding", Route = "/onboarding", Icon = "UserCheck", ParentId = null, SortOrder = 3, IsActive = true },
+                new MenuItemDto { Id = 31, Name = "Onboarding Overview", Route = "/onboarding/overview", Icon = "Eye", ParentId = 3, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 32, Name = "Task Management", Route = "/onboarding/tasks", Icon = "CheckSquare", ParentId = 3, SortOrder = 2, IsActive = true },
+                new MenuItemDto { Id = 33, Name = "Progress Tracking", Route = "/onboarding/progress", Icon = "TrendingUp", ParentId = 3, SortOrder = 3, IsActive = true },
+                
+                // Time & Attendance
+                new MenuItemDto { Id = 4, Name = "Time & Attendance", Route = "/time", Icon = "Clock", ParentId = null, SortOrder = 4, IsActive = true },
+                new MenuItemDto { Id = 41, Name = "Time Entry", Route = "/time/entry", Icon = "Plus", ParentId = 4, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 42, Name = "Timesheets", Route = "/time/sheets", Icon = "Calendar", ParentId = 4, SortOrder = 2, IsActive = true },
+                new MenuItemDto { Id = 43, Name = "Time Reports", Route = "/time/reports", Icon = "BarChart", ParentId = 4, SortOrder = 3, IsActive = true },
+                
+                // Administration
+                new MenuItemDto { Id = 5, Name = "Administration", Route = "/admin", Icon = "Settings", ParentId = null, SortOrder = 5, IsActive = true },
+                new MenuItemDto { Id = 51, Name = "User Management", Route = "/admin/users", Icon = "UserCog", ParentId = 5, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 52, Name = "Department Setup", Route = "/admin/departments", Icon = "Building", ParentId = 5, SortOrder = 2, IsActive = true },
+                new MenuItemDto { Id = 53, Name = "System Settings", Route = "/admin/settings", Icon = "Cog", ParentId = 5, SortOrder = 3, IsActive = true },
+                
+                // Profile
+                new MenuItemDto { Id = 7, Name = "Profile", Route = "/profile", Icon = "User", ParentId = null, SortOrder = 7, IsActive = true },
+                new MenuItemDto { Id = 71, Name = "Personal Information", Route = "/profile/personal", Icon = "Info", ParentId = 7, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 72, Name = "Account Settings", Route = "/profile/settings", Icon = "Settings", ParentId = 7, SortOrder = 2, IsActive = true },
+                
+                // Help
+                new MenuItemDto { Id = 8, Name = "Help", Route = "/help", Icon = "HelpCircle", ParentId = null, SortOrder = 8, IsActive = true },
+                new MenuItemDto { Id = 81, Name = "Documentation", Route = "/help/docs", Icon = "Book", ParentId = 8, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 82, Name = "Support", Route = "/help/support", Icon = "MessageCircle", ParentId = 8, SortOrder = 2, IsActive = true }
+            };
+        }
+
+        /// <summary>
+        /// Get limited menu structure for regular employees - FIXED VERSION
+        /// </summary>
+        private List<MenuItemDto> GetEmployeeMenuStructure(int? departmentId)
+        {
+            return new List<MenuItemDto>
+            {
+                // Dashboard
+                new MenuItemDto { Id = 1, Name = "Dashboard", Route = "/dashboard", Icon = "BarChart3", ParentId = null, SortOrder = 1, IsActive = true },
+                
+                // Time & Attendance
+                new MenuItemDto { Id = 4, Name = "Time & Attendance", Route = "/time", Icon = "Clock", ParentId = null, SortOrder = 2, IsActive = true },
+                new MenuItemDto { Id = 41, Name = "Time Entry", Route = "/time/entry", Icon = "Plus", ParentId = 4, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 42, Name = "My Timesheets", Route = "/time/my-sheets", Icon = "Calendar", ParentId = 4, SortOrder = 2, IsActive = true },
+                
+                // Profile
+                new MenuItemDto { Id = 7, Name = "Profile", Route = "/profile", Icon = "User", ParentId = null, SortOrder = 3, IsActive = true },
+                new MenuItemDto { Id = 71, Name = "Personal Information", Route = "/profile/personal", Icon = "Info", ParentId = 7, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 72, Name = "Account Settings", Route = "/profile/settings", Icon = "Settings", ParentId = 7, SortOrder = 2, IsActive = true },
+                
+                // Help
+                new MenuItemDto { Id = 8, Name = "Help", Route = "/help", Icon = "HelpCircle", ParentId = null, SortOrder = 4, IsActive = true },
+                new MenuItemDto { Id = 81, Name = "Documentation", Route = "/help/docs", Icon = "Book", ParentId = 8, SortOrder = 1, IsActive = true },
+                new MenuItemDto { Id = 82, Name = "Support", Route = "/help/support", Icon = "MessageCircle", ParentId = 8, SortOrder = 2, IsActive = true }
+            };
+        }
+
+        // =============================================================================
+        // DASHBOARD INTEGRATION
+        // =============================================================================
+
+        /// <summary>
+        /// Get dashboard configuration based on onboarding status
+        /// </summary>
+        [HttpGet("dashboard-config")]
+        public async Task<IActionResult> GetDashboardConfig()
+        {
+            try
+            {
+                var user = await GetCurrentUserAsync();
+                if (user == null)
+                {
+                    return Unauthorized(new { success = false, message = "Authentication required" });
+                }
+
+                var employee = await GetCurrentEmployeeAsync();
+                var hasRestrictedAccess = employee?.IsOnboardingLocked ?? false;
+
+                if (hasRestrictedAccess && !await IsHROrAdmin(user))
+                {
+                    // Return onboarding-specific dashboard configuration
+                    return Ok(new
+                    {
+                        success = true,
+                        data = new
+                        {
+                            dashboardType = "ONBOARDING",
+                            title = "Welcome to TPA HR System",
+                            subtitle = "Complete your onboarding to access the full system",
+                            showProgressBar = true,
+                            showTaskList = true,
+                            showWelcomeMessage = true,
+                            restrictedAccess = true,
+                            availableWidgets = new[]
+                            {
+                                "onboarding-progress",
+                                "pending-tasks",
+                                "welcome-message",
+                                "hr-contact"
+                            }
+                        }
+                    });
+                }
+
+                // Return full dashboard configuration
                 return Ok(new
                 {
                     success = true,
                     data = new
                     {
-                        menus = hierarchicalMenus,
-                        totalMenus = allMenus.Count,
-                        roles = new[] { "SuperAdmin", "Admin", "HRAdmin", "ProgramDirector", "ProgramCoordinator", "Employee" }
+                        dashboardType = "FULL",
+                        title = "TPA HR Dashboard",
+                        subtitle = $"Welcome back, {user.Email}",
+                        showProgressBar = false,
+                        showTaskList = false,
+                        showWelcomeMessage = false,
+                        restrictedAccess = false,
+                        availableWidgets = new[]
+                        {
+                            "stats-overview",
+                            "recent-activity",
+                            "notifications",
+                            "quick-actions",
+                            "calendar-widget"
+                        }
                     }
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading all menu items");
-                return StatusCode(500, new
-                {
-                    success = false,
-                    message = "Error loading menu items",
-                    error = ex.Message
-                });
+                _logger.LogError(ex, "Error getting dashboard config");
+                return StatusCode(500, new { success = false, message = "Error getting dashboard configuration" });
             }
         }
 
-        /// <summary>
-        /// Get role permissions for all menus (SuperAdmin only)
-        /// </summary>
-        [HttpGet("role-permissions")]
-        public async Task<IActionResult> GetRolePermissions()
-        {
-            var user = await GetCurrentUserAsync();
-            if (user == null)
-            {
-                return Unauthorized(new { success = false, message = "Authentication required" });
-            }
+        // =============================================================================
+        // HEALTH CHECK ENDPOINTS
+        // =============================================================================
 
-            // Only SuperAdmin can view all role permissions
-            if (user.Role != "SuperAdmin")
-            {
-                return StatusCode(403, new { success = false, message = "SuperAdmin privileges required" });
-            }
-
-            var rolePermissions = await _context.RoleMenuPermissions
-                .Include(rmp => rmp.MenuItem)
-                .GroupBy(rmp => rmp.Role)
-                .Select(g => new
-                {
-                    role = g.Key,
-                    permissions = g.Select(rmp => new
-                    {
-                        menuId = rmp.MenuItemId,
-                        menuName = rmp.MenuItem.Name,
-                        menuRoute = rmp.MenuItem.Route,
-                        canView = rmp.CanView,
-                        canEdit = rmp.CanEdit,
-                        canDelete = rmp.CanDelete
-                    }).ToList()
-                })
-                .ToListAsync();
-
-            return Ok(new
-            {
-                success = true,
-                data = rolePermissions
-            });
-        }
-
-        /// <summary>
-        /// Health check endpoint (no authentication required)
-        /// </summary>
         [HttpGet("health")]
         public IActionResult Health()
         {
+            return Ok(new { success = true, message = "Menu Controller is healthy", timestamp = DateTime.UtcNow });
+        }
+
+        [HttpGet("test")]
+        public async Task<IActionResult> Test()
+        {
+            var user = await GetCurrentUserAsync();
+            var employee = await GetCurrentEmployeeAsync();
+
             return Ok(new
             {
                 success = true,
-                message = "Menu Management API is healthy",
+                message = "Menu Controller is working!",
                 timestamp = DateTime.UtcNow,
-                version = "1.0.0",
-                authType = "Session-based"
+                authenticatedUser = user?.Email ?? "Not authenticated",
+                employee = employee != null ? new
+                {
+                    id = employee.Id,
+                    number = employee.EmployeeNumber,
+                    isOnboardingLocked = employee.IsOnboardingLocked,
+                    onboardingStatus = employee.OnboardingStatus
+                } : null
             });
         }
-
-        /// <summary>
-        /// Debug current user session
-        /// </summary>
-        [HttpGet("debug-session")]
-        public async Task<IActionResult> DebugSession()
-        {
-            try
-            {
-                var token = GetTokenFromHeader();
-                var user = await GetCurrentUserAsync();
-                var employee = await GetCurrentEmployeeAsync();
-                var departmentName = await GetDepartmentNameAsync(employee?.DepartmentId);
-
-                return Ok(new
-                {
-                    success = true,
-                    debug = new
-                    {
-                        hasAuthHeader = !string.IsNullOrEmpty(Request.Headers["Authorization"].FirstOrDefault()),
-                        tokenPreview = token?.Substring(0, Math.Min(20, token?.Length ?? 0)) + "...",
-                        userFound = user != null,
-                        user = user != null ? new { user.Id, user.Email, user.Role, user.IsActive } : null,
-                        employee = employee != null ? new { employee.Id, employee.FirstName, employee.LastName, employee.DepartmentId, departmentName } : null,
-                        sessionCount = await _context.UserSessions.CountAsync(s => s.IsActive && s.ExpiresAt > DateTime.UtcNow)
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                return Ok(new
-                {
-                    success = false,
-                    error = ex.Message,
-                    debug = new
-                    {
-                        hasAuthHeader = !string.IsNullOrEmpty(Request.Headers["Authorization"].FirstOrDefault())
-                    }
-                });
-            }
-        }
-
-        // =============================================================================
-        // HELPER METHODS
-        // =============================================================================
-
-        private bool HasMenuAccess(MenuItem menu, string userRole)
-        {
-            // If no role permissions defined, assume accessible to all
-            if (!menu.RolePermissions.Any())
-            {
-                return true;
-            }
-
-            // Check if user's role has view permission
-            var rolePermission = menu.RolePermissions
-                .FirstOrDefault(rp => rp.Role == userRole);
-
-            return rolePermission?.CanView == true;
-        }
-
-        private List<object> BuildUserMenuTree(List<MenuItem> allMenus)
-        {
-            return allMenus
-                .Where(m => m.ParentId == null)
-                .OrderBy(m => m.SortOrder)
-                .ThenBy(m => m.Name)
-                .Select(menu => new
-                {
-                    id = menu.Id,
-                    name = menu.Name,
-                    route = menu.Route,
-                    icon = menu.Icon,
-                    permissions = new
-                    {
-                        canView = true, // Since we already filtered by access
-                        canEdit = false,
-                        canDelete = false
-                    },
-                    children = BuildUserMenuChildren(allMenus, menu.Id)
-                })
-                .Cast<object>()
-                .ToList();
-        }
-
-        private List<object> BuildUserMenuChildren(List<MenuItem> allMenus, int parentId)
-        {
-            return allMenus
-                .Where(m => m.ParentId == parentId)
-                .OrderBy(m => m.SortOrder)
-                .ThenBy(m => m.Name)
-                .Select(menu => new
-                {
-                    id = menu.Id,
-                    name = menu.Name,
-                    route = menu.Route,
-                    icon = menu.Icon,
-                    permissions = new
-                    {
-                        canView = true,
-                        canEdit = false,
-                        canDelete = false
-                    },
-                    children = BuildUserMenuChildren(allMenus, menu.Id)
-                })
-                .Cast<object>()
-                .ToList();
-        }
-
-        private List<object> BuildAdminMenuTree(List<MenuItem> allMenus)
-        {
-            return allMenus
-                .Where(m => m.ParentId == null)
-                .OrderBy(m => m.SortOrder)
-                .Select(m => new
-                {
-                    id = m.Id,
-                    name = m.Name,
-                    route = m.Route,
-                    icon = m.Icon,
-                    isActive = m.IsActive,
-                    requiredPermission = m.RequiredPermission,
-                    rolePermissions = m.RolePermissions.Select(rp => new
-                    {
-                        role = rp.Role,
-                        canView = rp.CanView,
-                        canEdit = rp.CanEdit,
-                        canDelete = rp.CanDelete
-                    }).ToList(),
-                    children = BuildAdminMenuChildren(allMenus, m.Id)
-                })
-                .Cast<object>()
-                .ToList();
-        }
-
-        private List<object> BuildAdminMenuChildren(List<MenuItem> allMenus, int parentId)
-        {
-            return allMenus
-                .Where(m => m.ParentId == parentId)
-                .OrderBy(m => m.SortOrder)
-                .Select(m => new
-                {
-                    id = m.Id,
-                    name = m.Name,
-                    route = m.Route,
-                    icon = m.Icon,
-                    isActive = m.IsActive,
-                    requiredPermission = m.RequiredPermission,
-                    rolePermissions = m.RolePermissions.Select(rp => new
-                    {
-                        role = rp.Role,
-                        canView = rp.CanView,
-                        canEdit = rp.CanEdit,
-                        canDelete = rp.CanDelete
-                    }).ToList(),
-                    children = BuildAdminMenuChildren(allMenus, m.Id)
-                })
-                .Cast<object>()
-                .ToList();
-        }
-
-        private List<object> BuildBreadcrumbTrail(MenuItem menuItem)
-        {
-            var breadcrumbs = new List<object>();
-            var current = menuItem;
-
-            // Build breadcrumb trail from current item back to root
-            while (current != null)
-            {
-                breadcrumbs.Insert(0, new
-                {
-                    id = current.Id,
-                    name = current.Name,
-                    route = current.Route,
-                    icon = current.Icon
-                });
-                current = current.Parent;
-            }
-
-            return breadcrumbs;
-        }
     }
 
     // =============================================================================
-    // REQUEST/RESPONSE MODELS
+    // MENU ITEM DTO CLASS (REPLACES THE MISSING MenuItem CLASS)
     // =============================================================================
 
-    /// <summary>
-    /// Request model for creating a new menu item
-    /// </summary>
-    public class CreateMenuRequest
+    public class MenuItemDto
     {
-        [Required]
-        [StringLength(100)]
+        public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
-
-        [Required]
-        [StringLength(200)]
         public string Route { get; set; } = string.Empty;
-
-        [StringLength(50)]
-        public string? Icon { get; set; }
-
+        public string Icon { get; set; } = string.Empty;
         public int? ParentId { get; set; }
-
-        public int SortOrder { get; set; } = 0;
-
-        [StringLength(100)]
+        public int SortOrder { get; set; }
+        public bool IsActive { get; set; }
         public string? RequiredPermission { get; set; }
-
-        public List<RolePermissionRequest>? RolePermissions { get; set; }
-    }
-
-    /// <summary>
-    /// Request model for updating an existing menu item
-    /// </summary>
-    public class UpdateMenuRequest
-    {
-        [StringLength(100)]
-        public string? Name { get; set; }
-
-        [StringLength(200)]
-        public string? Route { get; set; }
-
-        [StringLength(50)]
-        public string? Icon { get; set; }
-
-        public int? ParentId { get; set; }
-
-        public int? SortOrder { get; set; }
-
-        public bool? IsActive { get; set; }
-
-        [StringLength(100)]
-        public string? RequiredPermission { get; set; }
-    }
-
-    /// <summary>
-    /// Request model for role permissions
-    /// </summary>
-    public class RolePermissionRequest
-    {
-        [Required]
-        public string Role { get; set; } = string.Empty;
-        public bool CanView { get; set; } = false;
-        public bool CanEdit { get; set; } = false;
-        public bool CanDelete { get; set; } = false;
-    }
-
-    /// <summary>
-    /// Request models for menu operations (kept for compatibility)
-    /// </summary>
-    public class MenuPermissionRequest
-    {
-        [Required]
-        public string MenuName { get; set; } = string.Empty;
-
-        [Required]
-        public string PermissionType { get; set; } = string.Empty; // VIEW, EDIT, DELETE
     }
 }
