@@ -1,9 +1,4 @@
-﻿// =============================================================================
-// ONBOARDING SERVICE - API SERVICES FOLDER
-// File: TPAHRSystem.API/Services/OnboardingService.cs
-// =============================================================================
-
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
 using TPAHRSystem.Core.Models;
 using TPAHRSystem.Infrastructure.Data;
@@ -11,68 +6,7 @@ using TPAHRSystem.Infrastructure.Data;
 namespace TPAHRSystem.API.Services
 {
     // =============================================================================
-    // STORED PROCEDURE RESULT CLASSES
-    // =============================================================================
-
-    public class CreateEmployeeResult
-    {
-        public int EmployeeId { get; set; }
-        public string EmployeeNumber { get; set; } = string.Empty;
-        public string EmployeeName { get; set; } = string.Empty;
-        public int OnboardingTasks { get; set; }
-        public string Department { get; set; } = string.Empty;
-        public string Message { get; set; } = string.Empty;
-    }
-
-    public class EmployeeTaskResult
-    {
-        public int Id { get; set; }
-        public string Title { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string Category { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public string Priority { get; set; } = string.Empty;
-        public DateTime? DueDate { get; set; }
-        public string EstimatedTime { get; set; } = string.Empty;
-        public string Instructions { get; set; } = string.Empty;
-        public DateTime CreatedDate { get; set; }
-        public DateTime? CompletedDate { get; set; }
-        public string Notes { get; set; } = string.Empty;
-    }
-
-    public class TaskCompletionResult
-    {
-        public string Message { get; set; } = string.Empty;
-        public int CompletedTasks { get; set; }
-        public int TotalTasks { get; set; }
-        public decimal CompletionPercentage { get; set; }
-        public string OnboardingStatus { get; set; } = string.Empty;
-    }
-
-    public class OnboardingStatusResult
-    {
-        public int EmployeeId { get; set; }
-        public string EmployeeNumber { get; set; } = string.Empty;
-        public string EmployeeName { get; set; } = string.Empty;
-        public string Position { get; set; } = string.Empty;
-        public string Department { get; set; } = string.Empty;
-        public int TotalTasks { get; set; }
-        public int CompletedTasks { get; set; }
-        public int PendingTasks { get; set; }
-        public decimal CompletionPercentage { get; set; }
-        public DateTime HireDate { get; set; }
-    }
-
-    public class OnboardingCompletionResult
-    {
-        public string Message { get; set; } = string.Empty;
-        public string EmployeeNumber { get; set; } = string.Empty;
-        public string EmployeeName { get; set; } = string.Empty;
-        public DateTime CompletedDate { get; set; }
-    }
-
-    // =============================================================================
-    // SIMPLE DTOs FOR API
+    // REQUEST AND DTO CLASSES (Keep these here as they're service-specific)
     // =============================================================================
 
     public class CreateEmployeeRequest
@@ -82,6 +16,7 @@ namespace TPAHRSystem.API.Services
         public string Email { get; set; } = string.Empty;
         public string Position { get; set; } = string.Empty;
         public int DepartmentId { get; set; }
+        public string TemporaryPassword { get; set; } = "TempPass123!"; // Default value
     }
 
     public class CreateEmployeeDto
@@ -160,7 +95,7 @@ namespace TPAHRSystem.API.Services
     }
 
     // =============================================================================
-    // SERVICE RESULT WRAPPER (CONSISTENT WITH YOUR OTHER SERVICES)
+    // SERVICE RESULT WRAPPER
     // =============================================================================
 
     public class OnboardingServiceResult<T>
@@ -232,7 +167,7 @@ namespace TPAHRSystem.API.Services
         }
 
         // =============================================================================
-        // EMPLOYEE CREATION
+        // EMPLOYEE CREATION - CORRECTED VERSION
         // =============================================================================
 
         public async Task<OnboardingServiceResult<CreateEmployeeDto>> CreateEmployeeWithOnboardingAsync(
@@ -248,25 +183,33 @@ namespace TPAHRSystem.API.Services
                     return OnboardingServiceResult<CreateEmployeeDto>.CreateFailure("Only HR and Admin staff can create employees");
                 }
 
-                // Execute stored procedure
+                // CORRECTED: Execute stored procedure with all required parameters
                 var parameters = new[]
                 {
                     new SqlParameter("@FirstName", request.FirstName),
                     new SqlParameter("@LastName", request.LastName),
                     new SqlParameter("@Email", request.Email),
                     new SqlParameter("@Position", request.Position),
-                    new SqlParameter("@DepartmentId", request.DepartmentId)
+                    new SqlParameter("@DepartmentId", request.DepartmentId),
+                    new SqlParameter("@TemporaryPassword", string.IsNullOrEmpty(request.TemporaryPassword) ? "TempPass123!" : request.TemporaryPassword)
                 };
 
                 var result = await _context.Database
                     .SqlQueryRaw<CreateEmployeeResult>(
-                        "EXEC sp_CreateEmployeeWithOnboarding @FirstName, @LastName, @Email, @Position, @DepartmentId",
+                        "EXEC sp_CreateEmployeeWithOnboarding @FirstName, @LastName, @Email, @Position, @DepartmentId, @TemporaryPassword",
                         parameters)
                     .FirstOrDefaultAsync();
 
                 if (result == null)
                 {
-                    return OnboardingServiceResult<CreateEmployeeDto>.CreateFailure("Employee creation failed");
+                    return OnboardingServiceResult<CreateEmployeeDto>.CreateFailure("Employee creation failed - no result returned");
+                }
+
+                // Check if the stored procedure returned an error using the IsSuccess property from consolidated model
+                if (!result.IsSuccess)
+                {
+                    return OnboardingServiceResult<CreateEmployeeDto>.CreateFailure(
+                        result.ErrorMessage ?? "Employee creation failed");
                 }
 
                 var dto = new CreateEmployeeDto
@@ -281,9 +224,15 @@ namespace TPAHRSystem.API.Services
 
                 return OnboardingServiceResult<CreateEmployeeDto>.CreateSuccess(dto, result.Message);
             }
+            catch (SqlException sqlEx)
+            {
+                _logger.LogError(sqlEx, $"SQL error creating employee: {request.FirstName} {request.LastName}");
+                return OnboardingServiceResult<CreateEmployeeDto>.CreateFailure(
+                    $"Database error creating employee: {sqlEx.Message}");
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating employee with onboarding");
+                _logger.LogError(ex, $"Error creating employee: {request.FirstName} {request.LastName}");
                 return OnboardingServiceResult<CreateEmployeeDto>.CreateFailure("Error creating employee");
             }
         }
@@ -374,6 +323,13 @@ namespace TPAHRSystem.API.Services
                 if (result == null)
                 {
                     return OnboardingServiceResult<TaskCompletionDto>.CreateFailure("Task completion failed");
+                }
+
+                // Check if the stored procedure returned an error using the IsSuccess property
+                if (!result.IsSuccess)
+                {
+                    return OnboardingServiceResult<TaskCompletionDto>.CreateFailure(
+                        result.ErrorMessage ?? "Task completion failed");
                 }
 
                 var dto = new TaskCompletionDto
@@ -468,11 +424,17 @@ namespace TPAHRSystem.API.Services
                     return OnboardingServiceResult<OnboardingCompletionDto>.CreateFailure("Onboarding completion failed");
                 }
 
+                // Check if the stored procedure returned an error using the IsSuccess property
+                if (!result.IsSuccess)
+                {
+                    return OnboardingServiceResult<OnboardingCompletionDto>.CreateFailure(
+                        result.ErrorMessage ?? "Onboarding completion failed");
+                }
+
                 // Update employee's onboarding status to unlock system access
                 var employee = await _context.Employees.FindAsync(employeeId);
                 if (employee != null)
                 {
-                    //employee.OnboardingStatus = "COMPLETED";
                     employee.IsOnboardingLocked = false;
                     await _context.SaveChangesAsync();
                 }
@@ -482,7 +444,7 @@ namespace TPAHRSystem.API.Services
                     Message = result.Message,
                     EmployeeNumber = result.EmployeeNumber,
                     EmployeeName = result.EmployeeName,
-                    CompletedDate = result.CompletedDate
+                    CompletedDate = result.CompletedDate ?? DateTime.UtcNow
                 };
 
                 return OnboardingServiceResult<OnboardingCompletionDto>.CreateSuccess(dto, result.Message);

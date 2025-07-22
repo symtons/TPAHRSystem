@@ -82,14 +82,15 @@ namespace TPAHRSystem.API.Controllers
         }
 
         // =============================================================================
-        // EMPLOYEE CREATION WITH ONBOARDING - MINIMAL WORKING VERSION
+        // FIXED ONBOARDING CONTROLLER - CreateEmployeeWithOnboarding Method
+        // File: TPAHRSystem.API/Controllers/OnboardingController.cs
         // =============================================================================
 
         [HttpPost("create-employee")]
         public async Task<IActionResult> CreateEmployeeWithOnboarding([FromBody] CreateEmployeeRequest request)
         {
-            //try
-            //{
+            try
+            {
                 var user = await GetCurrentUserAsync();
                 if (user == null)
                     return Unauthorized(new { success = false, message = "Authentication required" });
@@ -102,73 +103,82 @@ namespace TPAHRSystem.API.Controllers
 
                 _logger.LogInformation($"Creating employee with onboarding: {request.FirstName} {request.LastName}");
 
-                // **SAFE APPROACH: Use ExecuteSqlRaw without composition**
-                var sql = @"
-                    EXEC sp_CreateEmployeeWithOnboarding 
-                        @FirstName = {0}, 
-                        @LastName = {1}, 
-                        @Email = {2}, 
-                        @Position = {3}, 
-                        @DepartmentId = {4}, 
-                        @TemporaryPassword = {5}";
-
-                var parameters = new object[]
+                // CORRECTED: Use proper SqlParameter array with all required parameters
+                var parameters = new[]
                 {
-                    request.FirstName,
-                    request.LastName,
-                    request.Email,
-                    request.Position,
-                    request.DepartmentId,
-                    request.TemporaryPassword ?? "TempPass123!"
-                };
+            new SqlParameter("@FirstName", request.FirstName),
+            new SqlParameter("@LastName", request.LastName),
+            new SqlParameter("@Email", request.Email),
+            new SqlParameter("@Position", request.Position),
+            new SqlParameter("@DepartmentId", request.DepartmentId),
+            new SqlParameter("@TemporaryPassword", request.TemporaryPassword ?? "TempPass123!")
+        };
 
-                // Execute the stored procedure
-                var rowsAffected = await _context.Database.ExecuteSqlRawAsync(sql, parameters);
-
-                // Since stored procedures don't return data easily with ExecuteSqlRaw,
-                // let's get the latest created employee
-                var latestEmployee = await _context.Employees
-                    .Where(e => e.FirstName == request.FirstName &&
-                               e.LastName == request.LastName &&
-                               e.Email == request.Email)
-                    .OrderByDescending(e => e.Id)
+                // CORRECTED: Execute stored procedure with proper parameter handling
+                var result = await _context.Database
+                    .SqlQueryRaw<CreateEmployeeResult>(
+                        "EXEC sp_CreateEmployeeWithOnboarding @FirstName, @LastName, @Email, @Position, @DepartmentId, @TemporaryPassword",
+                        parameters)
                     .FirstOrDefaultAsync();
 
-                if (latestEmployee != null)
+                if (result == null)
                 {
-                    // Get onboarding tasks count
-                    var tasksCount = await _context.OnboardingTasks
-                        .CountAsync(t => t.EmployeeId == latestEmployee.Id && !t.IsTemplate);
+                    _logger.LogError("Stored procedure returned null result");
+                    return StatusCode(500, new { success = false, message = "Employee creation failed - no result returned" });
+                }
 
-                    var result = new
+                // Check if the stored procedure returned an error
+                if (!result.IsSuccess)
+                {
+                    _logger.LogError($"Employee creation failed: {result.ErrorMessage}");
+                    return StatusCode(500, new
                     {
-                        success = true,
-                        data = new
-                        {
-                            employeeId = latestEmployee.Id,
-                            employeeNumber = latestEmployee.EmployeeNumber,
-                            employeeName = $"{latestEmployee.FirstName} {latestEmployee.LastName}",
-                            onboardingTasks = tasksCount,
-                            department = latestEmployee.Department?.Name ?? "Unknown",
-                            message = "Employee created successfully with onboarding tasks"
-                        }
-                    };
-
-                    _logger.LogInformation($"Employee created successfully: {latestEmployee.EmployeeNumber}");
-                    return Ok(result);
+                        success = false,
+                        message = result.ErrorMessage ?? "Employee creation failed",
+                        details = result.Status
+                    });
                 }
-                else
+
+                // SUCCESS: Return the proper response
+                var response = new
                 {
-                    return StatusCode(500, new { success = false, message = "Employee creation may have failed - could not retrieve created employee" });
-                }
-            //}
-            //catch (Exception ex)
-            //{
-            //    _logger.LogError(ex, "Error creating employee with onboarding");
-            //    return StatusCode(500, new { success = false, message = "Error creating employee", error = ex.Message });
-            //}
-        }
+                    success = true,
+                    data = new
+                    {
+                        employeeId = result.EmployeeId,
+                        employeeNumber = result.EmployeeNumber,
+                        employeeName = result.EmployeeName,
+                        onboardingTasks = result.OnboardingTasks,
+                        department = result.Department,
+                        message = result.Message
+                    }
+                };
 
+                _logger.LogInformation($"Employee created successfully: {result.EmployeeNumber}");
+                return Ok(response);
+            }
+            catch (SqlException sqlEx)
+            {
+                _logger.LogError(sqlEx, "SQL error creating employee with onboarding");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Database error creating employee",
+                    error = sqlEx.Message,
+                    details = "Check stored procedure sp_CreateEmployeeWithOnboarding exists and has correct parameters"
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error creating employee with onboarding");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Error creating employee",
+                    error = ex.Message
+                });
+            }
+        }
         // =============================================================================
         // ONBOARDING TASKS MANAGEMENT - SAFE EF CORE QUERIES
         // =============================================================================
