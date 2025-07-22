@@ -10,5 +10,7 @@
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public virtual ICollection<Employee> Employees { get; set; } = new List<Employee>();
+
+
     }
 }

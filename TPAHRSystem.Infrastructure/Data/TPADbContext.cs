@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// THE EXACT FIX: Replace your current TPADbContext.cs with this complete version
+// COMPLETE FIXED TPADBCONTEXT - NO DUPLICATES, ALL METHODS INCLUDED
 // File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs (REPLACE ENTIRE FILE)
 // =============================================================================
 
@@ -20,15 +20,15 @@ namespace TPAHRSystem.Infrastructure.Data
         public DbSet<UserSession> UserSessions { get; set; } = null!;
         public DbSet<Department> Departments { get; set; } = null!;
 
-        // Menu & Permissions System - THESE WERE MISSING IN YOUR CURRENT VERSION
+        // Menu & Permissions System
         public DbSet<MenuItem> MenuItems { get; set; } = null!;
         public DbSet<RoleMenuPermission> RoleMenuPermissions { get; set; } = null!;
 
-        // Dashboard & UI - THESE WERE MISSING IN YOUR CURRENT VERSION
+        // Dashboard & UI
         public DbSet<DashboardStat> DashboardStats { get; set; } = null!;
         public DbSet<QuickAction> QuickActions { get; set; } = null!;
 
-        // Activity Tracking - THESE WERE MISSING IN YOUR CURRENT VERSION
+        // Activity Tracking
         public DbSet<ActivityType> ActivityTypes { get; set; } = null!;
         public DbSet<RecentActivity> RecentActivities { get; set; } = null!;
 
@@ -47,9 +47,6 @@ namespace TPAHRSystem.Infrastructure.Data
         public DbSet<OnboardingProgress> OnboardingProgress { get; set; } = null!;
         public DbSet<OnboardingChecklist> OnboardingChecklists { get; set; } = null!;
 
-
-
-       
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -62,6 +59,312 @@ namespace TPAHRSystem.Infrastructure.Data
             ConfigureTimeAttendanceEntities(modelBuilder);
             ConfigureLeaveEntities(modelBuilder);
         }
+
+        // =============================================================================
+        // CORRECTED PERMISSION METHODS FOR TPADBCONTEXT - 3 PARAMETERS
+        // File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs
+        // Replace the existing HasRoutePermissionAsync and CheckUserMenuPermissionAsync methods
+        // =============================================================================
+
+        /// <summary>
+        /// Check if user role has permission for a specific route
+        /// </summary>
+        public async Task<bool> HasRoutePermissionAsync(string userRole, string route, string permissionType = "VIEW")
+        {
+            try
+            {
+                // Basic role-based access control
+                switch (userRole?.ToLower())
+                {
+                    case "admin":
+                    case "hradmin":
+                        return true; // Admin roles have access to everything
+
+                    case "manager":
+                    case "programdirector":
+                        // Managers have access to most routes except admin-only
+                        return !route.ToLower().Contains("admin") || permissionType.ToUpper() == "VIEW";
+
+                    case "employee":
+                    case "programcoordinator":
+                        // Employees have limited access
+                        var allowedRoutes = new[] {
+                    "dashboard", "profile", "employee", "timeattendance",
+                    "leave", "onboarding", "documents"
+                };
+
+                        var hasAccess = allowedRoutes.Any(allowed =>
+                            route.ToLower().Contains(allowed.ToLower()));
+
+                        // Employees can only VIEW most things, not EDIT/DELETE
+                        if (hasAccess && permissionType.ToUpper() != "VIEW")
+                        {
+                            // Allow editing own profile and timesheet entries
+                            return route.ToLower().Contains("profile") ||
+                                   route.ToLower().Contains("timeattendance") ||
+                                   route.ToLower().Contains("leave");
+                        }
+
+                        return hasAccess;
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log error but allow access to prevent application blocking
+                Console.WriteLine($"Error in HasRoutePermissionAsync: {ex.Message}");
+                return true;
+            }
+        }
+
+        // =============================================================================
+        // TIMESHEET DBCONTEXT CONFIGURATION - ADD TO CONFIGURETIMEATTENDANCEENTITIES
+        // File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs
+        // Update the ConfigureTimeAttendanceEntities method
+        // =============================================================================
+
+        private void ConfigureTimeAttendanceEntities(ModelBuilder modelBuilder)
+        {
+            // TimeEntry Configuration
+            modelBuilder.Entity<TimeEntry>(entity =>
+            {
+                entity.ToTable("TimeEntries");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.ClockIn).IsRequired();
+                entity.Property(e => e.Location).HasMaxLength(200);
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Active");
+                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+
+                entity.HasIndex(e => e.ClockIn);
+                entity.HasIndex(e => new { e.EmployeeId, e.ClockIn });
+            });
+
+            // FIXED: TimeSheet Configuration - Resolve foreign key conflicts
+            modelBuilder.Entity<TimeSheet>(entity =>
+            {
+                entity.ToTable("TimeSheets");
+                entity.HasKey(e => e.Id);
+
+                // Basic Properties
+                entity.Property(e => e.WeekStartDate).IsRequired();
+                entity.Property(e => e.WeekEndDate).IsRequired();
+                entity.Property(e => e.TotalHours).HasColumnType("decimal(5,2)").HasDefaultValue(0);
+                entity.Property(e => e.RegularHours).HasColumnType("decimal(5,2)").HasDefaultValue(0);
+                entity.Property(e => e.OvertimeHours).HasColumnType("decimal(5,2)").HasDefaultValue(0);
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Draft");
+                entity.Property(e => e.Notes).HasMaxLength(1000);
+                entity.Property(e => e.PayPeriod).HasMaxLength(50);
+                entity.Property(e => e.IsLocked).HasDefaultValue(false);
+                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+
+                // CRITICAL FIX: Explicitly configure relationships to resolve foreign key conflict
+                entity.HasOne(e => e.Employee)
+                      .WithMany() // Don't specify inverse navigation to avoid conflicts
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Approver)
+                      .WithMany() // Don't specify inverse navigation to avoid conflicts
+                      .HasForeignKey(e => e.ApprovedById)
+                      .OnDelete(DeleteBehavior.NoAction); // NoAction prevents cascade conflicts
+
+                // Indexes for performance
+                entity.HasIndex(e => e.WeekStartDate);
+                entity.HasIndex(e => e.Status);
+                entity.HasIndex(e => e.EmployeeId);
+                entity.HasIndex(e => e.ApprovedById);
+                entity.HasIndex(e => new { e.EmployeeId, e.WeekStartDate });
+                entity.HasIndex(e => new { e.Status, e.WeekStartDate });
+            });
+
+            // Schedule Configuration (if you have it)
+            modelBuilder.Entity<Schedule>(entity =>
+            {
+                entity.ToTable("Schedules");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.DayOfWeek).IsRequired();
+                entity.Property(e => e.StartTime).IsRequired();
+                entity.Property(e => e.EndTime).IsRequired();
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+
+                entity.HasIndex(e => new { e.EmployeeId, e.DayOfWeek });
+            });
+        }
+        public async Task<bool> CheckUserMenuPermissionAsync(string userRole, string menuName, string permissionType = "VIEW")
+        {
+            try
+            {
+                // Basic role-based menu access control
+                switch (userRole?.ToLower())
+                {
+                    case "admin":
+                    case "hradmin":
+                        return true; // Admin roles have access to all menus
+
+                    case "manager":
+                    case "programdirector":
+                        // Managers have access to most menus
+                        var managerRestrictedMenus = new[] {
+                    "system-administration", "user-management", "system-settings"
+                };
+
+                        var isRestricted = managerRestrictedMenus.Any(restricted =>
+                            menuName.ToLower().Contains(restricted.ToLower()));
+
+                        if (isRestricted && permissionType.ToUpper() != "VIEW")
+                        {
+                            return false; // Managers can view but not edit restricted menus
+                        }
+
+                        return !isRestricted || permissionType.ToUpper() == "VIEW";
+
+                    case "employee":
+                    case "programcoordinator":
+                        // Employees have limited menu access
+                        var allowedMenus = new[] {
+                    "dashboard", "my-profile", "time-attendance", "leave-requests",
+                    "employee-directory", "onboarding", "documents", "help"
+                };
+
+                        var hasMenuAccess = allowedMenus.Any(allowed =>
+                            menuName.ToLower().Contains(allowed.ToLower()) ||
+                            allowed.ToLower().Contains(menuName.ToLower()));
+
+                        // Employees typically can only VIEW, with some exceptions
+                        if (hasMenuAccess && permissionType.ToUpper() != "VIEW")
+                        {
+                            // Allow editing for personal items
+                            var editableMenus = new[] {
+                        "my-profile", "time-attendance", "leave-requests"
+                    };
+
+                            return editableMenus.Any(editable =>
+                                menuName.ToLower().Contains(editable.ToLower()));
+                        }
+
+                        return hasMenuAccess;
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log error but allow access to prevent application blocking
+                Console.WriteLine($"Error in CheckUserMenuPermissionAsync: {ex.Message}");
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Helper method to check if a user has a specific role
+        /// </summary>
+        public async Task<bool> HasRoleAsync(int userId, string role)
+        {
+            try
+            {
+                var user = await Users.FindAsync(userId);
+                return user != null && user.IsActive &&
+                       string.Equals(user.Role, role, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Helper method to get user role by user ID
+        /// </summary>
+        public async Task<string?> GetUserRoleAsync(int userId)
+        {
+            try
+            {
+                var user = await Users.FindAsync(userId);
+                return user?.IsActive == true ? user.Role : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+        public async Task<bool> HasRoutePermissionAsync(int userId, string route)
+        {
+            try
+            {
+                var user = await Users.FindAsync(userId);
+                if (user == null || !user.IsActive)
+                    return false;
+
+                switch (user.Role.ToLower())
+                {
+                    case "admin":
+                    case "hradmin":
+                        return true;
+                    case "manager":
+                    case "programdirector":
+                        return !route.Contains("/admin/");
+                    case "employee":
+                        return route.Contains("/employee/") || route.Contains("/dashboard") || route.Contains("/profile");
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Check if user has permission for a specific menu item
+        /// </summary>
+        public async Task<bool> CheckUserMenuPermissionAsync(int userId, string permission)
+        {
+            try
+            {
+                var user = await Users.FindAsync(userId);
+                if (user == null || !user.IsActive)
+                    return false;
+
+                var rolePermission = await RoleMenuPermissions
+                    .Include(rmp => rmp.MenuItem)
+                    .FirstOrDefaultAsync(rmp =>
+                        rmp.Role.ToLower() == user.Role.ToLower() &&
+                        rmp.MenuItem.RequiredPermission == permission);
+
+                if (rolePermission != null)
+                {
+                    return rolePermission.CanView;
+                }
+
+                switch (user.Role.ToLower())
+                {
+                    case "admin":
+                    case "hradmin":
+                        return true;
+                    case "manager":
+                    case "programdirector":
+                        return !permission.Contains("admin.");
+                    case "employee":
+                        return permission.Contains("employee.") || permission.Contains("basic.");
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // =============================================================================
+        // ENTITY CONFIGURATIONS
+        // =============================================================================
 
         private void ConfigureUserEntities(ModelBuilder modelBuilder)
         {
@@ -101,6 +404,8 @@ namespace TPAHRSystem.Infrastructure.Data
             {
                 entity.ToTable("Employees");
                 entity.HasKey(e => e.Id);
+
+                // Basic Properties
                 entity.Property(e => e.EmployeeNumber).IsRequired().HasMaxLength(20);
                 entity.Property(e => e.FirstName).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.LastName).IsRequired().HasMaxLength(100);
@@ -111,18 +416,28 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.City).HasMaxLength(100);
                 entity.Property(e => e.State).HasMaxLength(50);
                 entity.Property(e => e.ZipCode).HasMaxLength(20);
+
+                // Job Related Properties
                 entity.Property(e => e.JobTitle).HasMaxLength(50);
                 entity.Property(e => e.Position).HasMaxLength(50);
                 entity.Property(e => e.WorkLocation).HasMaxLength(50);
+                entity.Property(e => e.EmployeeType).HasMaxLength(50);
                 entity.Property(e => e.Salary).HasColumnType("decimal(18,2)");
                 entity.Property(e => e.EmploymentStatus).HasMaxLength(20).HasDefaultValue("Active");
                 entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Active");
                 entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.ProfilePictureUrl).HasMaxLength(255);
+
+                // Onboarding Properties
+                entity.Property(e => e.OnboardingStatus).HasMaxLength(20);
                 entity.Property(e => e.IsOnboardingLocked).HasDefaultValue(true);
+
+                // Date Properties
                 entity.Property(e => e.HireDate).HasDefaultValueSql("GETUTCDATE()");
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
                 entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
 
+                // Relationships
                 entity.HasOne(e => e.User)
                       .WithMany(u => u.Employees)
                       .HasForeignKey(e => e.UserId)
@@ -138,6 +453,7 @@ namespace TPAHRSystem.Infrastructure.Data
                       .HasForeignKey(e => e.ManagerId)
                       .OnDelete(DeleteBehavior.SetNull);
 
+                // Indexes
                 entity.HasIndex(e => e.EmployeeNumber).IsUnique();
                 entity.HasIndex(e => e.Email).IsUnique();
             });
@@ -149,11 +465,9 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.Description).HasMaxLength(500);
-                entity.Property(e => e.Code).HasMaxLength(20);
                 entity.Property(e => e.IsActive).HasDefaultValue(true);
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
                 entity.HasIndex(e => e.Name).IsUnique();
-                entity.HasIndex(e => e.Code).IsUnique();
             });
         }
 
@@ -165,19 +479,20 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.ToTable("MenuItems");
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-                entity.Property(e => e.Route).HasMaxLength(200);
-                entity.Property(e => e.Icon).HasMaxLength(50);
-                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.Route).IsRequired().HasMaxLength(255);
+                entity.Property(e => e.Icon).HasMaxLength(100);
+                entity.Property(e => e.RequiredPermission).HasMaxLength(100);
                 entity.Property(e => e.SortOrder).HasDefaultValue(0);
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
 
                 entity.HasOne(e => e.Parent)
-                      .WithMany(p => p.Children)
+                      .WithMany(e => e.Children)
                       .HasForeignKey(e => e.ParentId)
                       .OnDelete(DeleteBehavior.Restrict);
 
-                entity.HasIndex(e => e.Name);
                 entity.HasIndex(e => e.Route);
+                entity.HasIndex(e => e.SortOrder);
             });
 
             // RoleMenuPermission Configuration
@@ -186,13 +501,13 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.ToTable("RoleMenuPermissions");
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Role).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.CanView).HasDefaultValue(false);
+                entity.Property(e => e.CanView).HasDefaultValue(true);
                 entity.Property(e => e.CanEdit).HasDefaultValue(false);
                 entity.Property(e => e.CanDelete).HasDefaultValue(false);
                 entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
 
                 entity.HasOne(e => e.MenuItem)
-                      .WithMany(m => m.RolePermissions)
+                      .WithMany()
                       .HasForeignKey(e => e.MenuItemId)
                       .OnDelete(DeleteBehavior.Cascade);
 
@@ -272,7 +587,7 @@ namespace TPAHRSystem.Infrastructure.Data
                       .OnDelete(DeleteBehavior.Cascade);
 
                 entity.HasOne(e => e.ActivityType)
-                      .WithMany(at => at.RecentActivities)
+                      .WithMany()
                       .HasForeignKey(e => e.ActivityTypeId)
                       .OnDelete(DeleteBehavior.Cascade);
 
@@ -286,6 +601,54 @@ namespace TPAHRSystem.Infrastructure.Data
             });
         }
 
+        
+
+      
+        private void ConfigureLeaveEntities(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<LeaveRequest>(entity =>
+            {
+                entity.ToTable("LeaveRequests");
+                entity.HasKey(e => e.Id);
+
+                // Basic Properties
+                entity.Property(e => e.LeaveType).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.StartDate).IsRequired();
+                entity.Property(e => e.EndDate).IsRequired();
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
+                entity.Property(e => e.Reason).HasMaxLength(1000);
+                entity.Property(e => e.WorkflowStatus).HasMaxLength(20);
+                entity.Property(e => e.RequestedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+
+                // FIXED: Configure relationships to avoid cascade path conflicts
+                entity.HasOne(e => e.Employee)
+                      .WithMany()
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.ReviewedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.ReviewedById)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Indexes for performance
+                entity.HasIndex(e => e.StartDate);
+                entity.HasIndex(e => e.Status);
+                entity.HasIndex(e => e.EmployeeId);
+                entity.HasIndex(e => e.ReviewedById);
+                entity.HasIndex(e => new { e.EmployeeId, e.StartDate });
+                entity.HasIndex(e => new { e.Status, e.StartDate });
+            });
+        }
+
+        // =============================================================================
+        // COMPLETE ONBOARDING ENTITIES CONFIGURATION
+        // File: TPAHRSystem.Infrastructure/Data/TPADbContext.cs
+        // Replace the ConfigureOnboardingEntities method with this complete version
+        // =============================================================================
+
         private void ConfigureOnboardingEntities(ModelBuilder modelBuilder)
         {
             // OnboardingTask Configuration
@@ -296,122 +659,149 @@ namespace TPAHRSystem.Infrastructure.Data
                 entity.Property(e => e.Title).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.Description).HasMaxLength(1000);
                 entity.Property(e => e.Category).HasMaxLength(50);
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("PENDING");
+                entity.Property(e => e.Priority).HasMaxLength(20).HasDefaultValue("MEDIUM");
                 entity.Property(e => e.AssignedToRole).HasMaxLength(50);
-                entity.Property(e => e.Priority).HasMaxLength(20).HasDefaultValue("Medium");
-                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
-               
+                entity.Property(e => e.Instructions).HasMaxLength(2000);
+                entity.Property(e => e.Notes).HasMaxLength(1000);
+                entity.Property(e => e.EstimatedTime).HasMaxLength(100);
+                entity.Property(e => e.CompletedByRole).HasMaxLength(50);
+                entity.Property(e => e.ApprovalNotes).HasMaxLength(500);
+                entity.Property(e => e.ExternalSystemId).HasMaxLength(100);
+                entity.Property(e => e.ActualTimeSpent).HasColumnType("decimal(3,1)");
                 entity.Property(e => e.SortOrder).HasDefaultValue(0);
-                
+                entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.IsTemplate).HasDefaultValue(false);
+                entity.Property(e => e.RequiresApproval).HasDefaultValue(false);
+                entity.Property(e => e.IsApproved).HasDefaultValue(false);
+
+                // Configure relationships without inverse navigation to avoid conflicts
+                entity.HasOne(e => e.Employee)
+                      .WithMany(emp => emp.OnboardingTasks)
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Template)
+                      .WithMany()
+                      .HasForeignKey(e => e.TemplateId)
+                      .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne(e => e.AssignedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.AssignedById)
+                      .OnDelete(DeleteBehavior.SetNull);
 
                 entity.HasIndex(e => e.Category);
                 entity.HasIndex(e => e.AssignedToRole);
                 entity.HasIndex(e => e.Status);
+                entity.HasIndex(e => new { e.EmployeeId, e.Status });
             });
 
-            // Other onboarding entities configuration would go here
-        }
-
-        private void ConfigureTimeAttendanceEntities(ModelBuilder modelBuilder)
-        {
-            // TimeEntry Configuration
-            modelBuilder.Entity<TimeEntry>(entity =>
+            // OnboardingTemplate Configuration
+            modelBuilder.Entity<OnboardingTemplate>(entity =>
             {
-                entity.ToTable("TimeEntries");
+                entity.ToTable("OnboardingTemplates");
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.ClockIn).IsRequired();
-                entity.Property(e => e.Location).HasMaxLength(200);
-               
-                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Active");
-                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
-                //entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.Description).HasMaxLength(1000);
+                entity.Property(e => e.Category).HasMaxLength(50);
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.ModifiedDate).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.IsSystemTemplate).HasDefaultValue(false);
 
-                entity.HasIndex(e => e.ClockIn);
-                entity.HasIndex(e => new { e.EmployeeId, e.ClockIn });
+                entity.HasIndex(e => e.Name).IsUnique();
+                entity.HasIndex(e => e.Category);
             });
 
-            // Other time & attendance entities would go here
-        }
-
-        private void ConfigureLeaveEntities(ModelBuilder modelBuilder)
-        {
-            // LeaveRequest Configuration
-            modelBuilder.Entity<LeaveRequest>(entity =>
+            // CRITICAL FIX: OnboardingChecklist Configuration - Handle multiple Employee relationships
+            modelBuilder.Entity<OnboardingChecklist>(entity =>
             {
-                entity.ToTable("LeaveRequests");
+                entity.ToTable("OnboardingChecklists");
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.LeaveType).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.StartDate).IsRequired();
-                entity.Property(e => e.EndDate).IsRequired();
-                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("Pending");
-                entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
-                entity.Property(e => e.UpdatedAt).HasDefaultValueSql("GETUTCDATE()");
 
-                entity.HasIndex(e => e.StartDate);
+                // Basic Properties
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("ASSIGNED");
+                entity.Property(e => e.Priority).HasMaxLength(50).HasDefaultValue("MEDIUM");
+                entity.Property(e => e.Notes).HasMaxLength(500);
+                entity.Property(e => e.CancellationReason).HasMaxLength(500);
+                entity.Property(e => e.ApprovalNotes).HasMaxLength(500);
+                entity.Property(e => e.ExternalSystemId).HasMaxLength(100);
+                entity.Property(e => e.EstimatedHours).HasColumnType("decimal(5,2)");
+                entity.Property(e => e.ActualHours).HasColumnType("decimal(5,2)");
+                entity.Property(e => e.AssignedDate).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(e => e.IsActive).HasDefaultValue(true);
+                entity.Property(e => e.RequiresManagerApproval).HasDefaultValue(false);
+                entity.Property(e => e.IsApproved).HasDefaultValue(false);
+                entity.Property(e => e.ReminderCount).HasDefaultValue(0);
+
+                // EXPLICIT RELATIONSHIP CONFIGURATION - No inverse navigation to avoid ambiguity
+                entity.HasOne(e => e.Employee)
+                      .WithMany() // NO inverse navigation property to avoid confusion
+                      .HasForeignKey(e => e.EmployeeId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(e => e.Template)
+                      .WithMany()
+                      .HasForeignKey(e => e.TemplateId)
+                      .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(e => e.AssignedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.AssignedById)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(e => e.CancelledBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.CancelledById)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                entity.HasOne(e => e.ApprovedBy)
+                      .WithMany()
+                      .HasForeignKey(e => e.ApprovedById)
+                      .OnDelete(DeleteBehavior.NoAction);
+
+                // Indexes for performance
                 entity.HasIndex(e => e.Status);
-                entity.HasIndex(e => new { e.EmployeeId, e.StartDate });
+                entity.HasIndex(e => e.AssignedDate);
+                entity.HasIndex(e => new { e.EmployeeId, e.Status });
+                entity.HasIndex(e => new { e.TemplateId, e.Status });
             });
-        }
 
-        // =============================================================================
-        // ADD THESE METHODS TO YOUR TPADbContext.cs FILE
-        // =============================================================================
-
-        // Add this at the end of your TPADbContext class, before the closing brace
-
-        /// <summary>
-        /// Check if user role has permission for a specific route
-        /// </summary>
-        public async Task<bool> HasRoutePermissionAsync(string userRole, string route, string permissionType = "VIEW")
-        {
-            try
+            // OnboardingDocument Configuration
+            modelBuilder.Entity<OnboardingDocument>(entity =>
             {
-                // If we don't have the RoleMenuPermissions table set up yet, allow all access
-                if (!RoleMenuPermissions.Any())
-                {
-                    return true; // Allow access when no permissions are configured
-                }
+                entity.ToTable("OnboardingDocuments");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.DocumentType).HasMaxLength(50);
+                entity.Property(e => e.FilePath).HasMaxLength(500);
+                entity.Property(e => e.FileName).HasMaxLength(100);
+                entity.Property(e => e.ContentType).HasMaxLength(50);
+                entity.Property(e => e.Required).HasDefaultValue(false);
+                entity.Property(e => e.Uploaded).HasDefaultValue(false);
+                entity.Property(e => e.FileSize).HasDefaultValue(0);
 
-                var hasPermission = await RoleMenuPermissions
-                    .Include(rmp => rmp.MenuItem)
-                    .AnyAsync(rmp => rmp.Role == userRole &&
-                                   rmp.MenuItem.Route == route &&
-                                   rmp.CanView == true);
+                entity.HasIndex(e => e.DocumentType);
+                entity.HasIndex(e => e.TaskId);
+            });
 
-                return hasPermission;
-            }
-            catch (Exception)
+            // OnboardingProgress Configuration
+            modelBuilder.Entity<OnboardingProgress>(entity =>
             {
-                // On error, allow access to prevent blocking
-                return true;
-            }
-        }
+                entity.ToTable("OnboardingProgress");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Status).HasMaxLength(20).HasDefaultValue("NOT_STARTED");
+                entity.Property(e => e.CompletionPercentage).HasColumnType("decimal(5,2)").HasDefaultValue(0);
+                entity.Property(e => e.TotalTasks).HasDefaultValue(0);
+                entity.Property(e => e.CompletedTasks).HasDefaultValue(0);
+                entity.Property(e => e.PendingTasks).HasDefaultValue(0);
+                entity.Property(e => e.OverdueTasks).HasDefaultValue(0);
+                entity.Property(e => e.LastUpdated).HasDefaultValueSql("GETUTCDATE()");
 
-        /// <summary>
-        /// Check if user role has permission for a specific menu
-        /// </summary>
-        public async Task<bool> CheckUserMenuPermissionAsync(string userRole, string menuName, string permissionType = "VIEW")
-        {
-            try
-            {
-                // If we don't have the RoleMenuPermissions table set up yet, allow all access
-                if (!RoleMenuPermissions.Any())
-                {
-                    return true; // Allow access when no permissions are configured
-                }
-
-                var hasPermission = await RoleMenuPermissions
-                    .Include(rmp => rmp.MenuItem)
-                    .AnyAsync(rmp => rmp.Role == userRole &&
-                                   rmp.MenuItem.Name == menuName &&
-                                   rmp.CanView == true);
-
-                return hasPermission;
-            }
-            catch (Exception)
-            {
-                // On error, allow access to prevent blocking
-                return true;
-            }
+                entity.HasIndex(e => e.EmployeeId).IsUnique();
+                entity.HasIndex(e => e.Status);
+            });
         }
     }
 }

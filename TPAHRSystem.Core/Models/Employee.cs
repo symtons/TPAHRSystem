@@ -1,7 +1,4 @@
-﻿// =============================================================================
-// CORRECTED EMPLOYEE MODEL - MATCHES DATABASE STRUCTURE
-// File: TPAHRSystem.Core/Models/Employee.cs (REPLACE ENTIRE FILE)
-// =============================================================================
+﻿
 
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -16,8 +13,6 @@ namespace TPAHRSystem.Core.Models
         [Required]
         [StringLength(20)]
         public string EmployeeNumber { get; set; } = string.Empty;
-        public bool? IsOnboardingLocked { get; set; } = true;
-
 
         [Required]
         [StringLength(100)]
@@ -65,6 +60,9 @@ namespace TPAHRSystem.Core.Models
         [StringLength(50)]
         public string? WorkLocation { get; set; }
 
+        [StringLength(50)]
+        public string? EmployeeType { get; set; }
+
         [Column(TypeName = "decimal(18,2)")]
         public decimal? Salary { get; set; }
 
@@ -76,17 +74,31 @@ namespace TPAHRSystem.Core.Models
 
         public bool IsActive { get; set; } = true;
 
+        [StringLength(255)]
+        public string? ProfilePictureUrl { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
-        // **ADDED: Only the onboarding column that actually exists in database**
+        public DateTime? LastUpdated { get; set; }
+
+        // Onboarding Properties - Based on your database
         public DateTime? OnboardingCompletedDate { get; set; }
+
+        [StringLength(20)]
+        public string? OnboardingStatus { get; set; }
+
+        public bool? IsOnboardingLocked { get; set; } = true;
 
         // Foreign Keys
         public int? UserId { get; set; }
         public int? DepartmentId { get; set; }
         public int? ManagerId { get; set; }
+
+        // Additional Foreign Keys (from database schema)
+        public int? DepartmentId1 { get; set; }
+        public int? UserId1 { get; set; }
 
         // Navigation Properties
         [ForeignKey("UserId")]
@@ -101,13 +113,15 @@ namespace TPAHRSystem.Core.Models
         // Navigation Properties for related entities
         public virtual ICollection<Employee> DirectReports { get; set; } = new List<Employee>();
         public virtual ICollection<OnboardingTask> OnboardingTasks { get; set; } = new List<OnboardingTask>();
-        public virtual ICollection<OnboardingChecklist> OnboardingChecklists { get; set; } = new List<OnboardingChecklist>();
+        //public virtual ICollection<OnboardingChecklist> OnboardingChecklists { get; set; } = new List<OnboardingChecklist>();
         public virtual ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
 
+        // REMOVED: LeaveRequests navigation property to avoid EF Core foreign key confusion
+        // The LeaveRequest entity will handle the relationship from its side only
+
         // **COMPUTED PROPERTIES - NOT MAPPED TO DATABASE**
-        // These are calculated from related OnboardingTasks, not stored in Employee table
         [NotMapped]
-        public string OnboardingStatus
+        public string OnboardingStatusComputed
         {
             get
             {
@@ -150,7 +164,6 @@ namespace TPAHRSystem.Core.Models
         {
             get => OnboardingTasks?.Count(t => !t.IsTemplate && t.Status == "COMPLETED") ?? 0;
         }
-       
 
         [NotMapped]
         public string FullName => $"{FirstName} {LastName}";

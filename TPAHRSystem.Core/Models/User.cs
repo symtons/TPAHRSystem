@@ -20,5 +20,6 @@ namespace TPAHRSystem.Core.Models
         public virtual ICollection<RecentActivity> RecentActivities { get; set; } = new List<RecentActivity>();
         public virtual ICollection<Employee> Employees { get; set; } = new List<Employee>();
         public virtual ICollection<UserSession> UserSessions { get; set; } = new List<UserSession>();
+
     }
 }

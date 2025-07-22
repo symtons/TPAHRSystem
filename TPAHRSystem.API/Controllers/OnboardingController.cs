@@ -88,8 +88,8 @@ namespace TPAHRSystem.API.Controllers
         [HttpPost("create-employee")]
         public async Task<IActionResult> CreateEmployeeWithOnboarding([FromBody] CreateEmployeeRequest request)
         {
-            try
-            {
+            //try
+            //{
                 var user = await GetCurrentUserAsync();
                 if (user == null)
                     return Unauthorized(new { success = false, message = "Authentication required" });
@@ -161,12 +161,12 @@ namespace TPAHRSystem.API.Controllers
                 {
                     return StatusCode(500, new { success = false, message = "Employee creation may have failed - could not retrieve created employee" });
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating employee with onboarding");
-                return StatusCode(500, new { success = false, message = "Error creating employee", error = ex.Message });
-            }
+            //}
+            //catch (Exception ex)
+            //{
+            //    _logger.LogError(ex, "Error creating employee with onboarding");
+            //    return StatusCode(500, new { success = false, message = "Error creating employee", error = ex.Message });
+            //}
         }
 
         // =============================================================================

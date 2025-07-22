@@ -20,6 +20,9 @@ namespace TPAHRSystem.Core.Models
         [MaxLength(1000)]
         public string Description { get; set; } = string.Empty;
 
+
+        public string Category { get; set; }
+
         [Required]
         [MaxLength(50)]
         public string ForRole { get; set; } = string.Empty;

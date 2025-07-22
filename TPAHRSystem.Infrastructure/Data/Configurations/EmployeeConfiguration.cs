@@ -92,10 +92,7 @@ namespace TPAHRSystem.Infrastructure.Data.Configurations
                 .HasForeignKey(t => t.EmployeeId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            builder.HasMany(e => e.OnboardingChecklists)
-                .WithOne(c => c.Employee)
-                .HasForeignKey(c => c.EmployeeId)
-                .OnDelete(DeleteBehavior.Cascade);
+          
 
             // Indexes
             builder.HasIndex(e => e.EmployeeNumber).IsUnique();
